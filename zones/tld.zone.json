@@ -1,0 +1,10 @@
+{
+    "test.homelab.": {
+        "ns_name": "ns1.test.homelab.",
+        "ns_ip": "127.0.0.5"
+    },
+    "mywebsite.homelab.": {
+        "ns_name": "ns1.mywebsite.homelab.",
+        "ns_ip": "127.0.0.11"
+    }
+}

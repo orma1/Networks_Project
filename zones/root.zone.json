@@ -1,0 +1,10 @@
+{
+    "homelab.": {
+        "ns_name": "tld.homelab.",
+        "ns_ip": "127.0.0.4"
+    },
+    "template.": {
+        "ns_name": "tld.template.",
+        "ns_ip": "127.0.0.5"
+    }
+}
