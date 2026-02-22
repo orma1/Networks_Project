@@ -1,0 +1,5 @@
+Zone: homelab.
+Type: ZSK
+Flag: 256
+DNSKEY Base64:
+6zuOYjp0SCy4Xxff+3Vjd6glPxTZD3Vu0OGVNGvtu1ffvrffBaCZAvSlDXAnd8nEf03lMB/CEQX9+f6be68A6Q==

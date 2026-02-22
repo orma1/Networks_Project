@@ -28,27 +28,49 @@ class LocalTLDServer:
             self.port = config['server'].get('bind_port', 53)
             self.buffer_size = config['server'].get('buffer_size', 512)
             self.zone_file_path = self.project_root / config['data'].get('zone_file', 'zones/tld.zone.json')
+            self.zone_directory_path = self.project_root / config['data'].get('zone_directory', 'zones/auth/')
 
     def _load_zone_data(self) -> dict:
-        if not self.zone_file_path.exists():
-            print(f"[WARNING] Zone file not found at {self.zone_file_path}.")
-            return {}
-        try:
-            with open(self.zone_file_path, 'r') as f:
-                zone_text = f.read()
-            parsed_records = RR.fromZone(zone_text)
-            zone_db = {}
-            for rr in parsed_records:
-                name = str(rr.rname)
-                rtype = rr.rtype
-                if name not in zone_db: zone_db[name] = {}
-                if rtype not in zone_db[name]: zone_db[name][rtype] = []
-                zone_db[name][rtype].append(rr)
-            print(f"[*] Successfully loaded {len(parsed_records)} records from TLD BIND zone.")
-            return zone_db
-        except Exception as e:
-            print(f"[FATAL] Failed to parse TLD zone: {e}")
+        # Assuming you update your __init__ to read config.data.get('zone_directory')
+        zone_dir = self.zone_directory_path 
+        
+        if not zone_dir.exists() or not zone_dir.is_dir():
+            print(f"[FATAL] Zone directory not found at {zone_dir}.")
             sys.exit(1)
+            
+        zone_db = {}
+        loaded_files = 0
+        total_records = 0
+
+        # Loop through every .zone file in the folder
+        for zone_file in zone_dir.glob("*.zone"):
+            try:
+                with open(zone_file, 'r') as f:
+                    zone_text = f.read()
+                    
+                parsed_records = RR.fromZone(zone_text)
+                loaded_files += 1
+                total_records += len(parsed_records)
+                
+                # Merge into the master memory dictionary
+                for rr in parsed_records:
+                    name = str(rr.rname)
+                    rtype = rr.rtype
+                    
+                    if name not in zone_db:
+                        zone_db[name] = {}
+                    if rtype not in zone_db[name]:
+                        zone_db[name][rtype] = []
+                        
+                    zone_db[name][rtype].append(rr)
+                    
+                print(f"[*] Loaded {len(parsed_records)} records from {zone_file.name}")
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to parse {zone_file.name}: {e}")
+
+        print(f"[*] Successfully loaded {total_records} total records across {loaded_files} zone files.")
+        return zone_db
 
     def extract_domain(self, qname: str) -> str:
         """ 

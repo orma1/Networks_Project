@@ -1,0 +1,5 @@
+Zone: custom.
+Type: ZSK
+Flag: 256
+DNSKEY Base64:
+djM5dkgmLtVlb1t5KHWKFvRbRpxF/ILjKNpdaRBlWpTpDDkU32k28jbkAIRYLW/DlDCpJRXEmvvWPXdvIEWTEQ==

@@ -17,7 +17,7 @@ active_processes = []
 def start_all():
     print("=" * 50)
     print("[*] Initiating Custom DNS Infrastructure Boot Sequence...")
-    print("=" * 50 + "\n")
+    print("=" * 50)
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
@@ -29,7 +29,7 @@ def start_all():
             print(f"[!] ERROR: Could not find {script_path}")
             continue
             
-        print(f"[*] Launching {service['name']}...")
+        print(f"\n[*] Launching {service['name']}...")
         
         # Start the script as a separate background process
         # sys.executable ensures it uses the exact same Python environment

@@ -5,4 +5,4 @@ server:
 
 data:
     # Path relative to the project root
-    zone_file: 'zones/root.zone'
+    zone_directory: 'zones/root/'

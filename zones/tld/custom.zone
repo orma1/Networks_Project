@@ -1,0 +1,7 @@
+$ORIGIN custom.
+$TTL 86400
+
+@                   IN  SOA tld.custom. admin.custom. 2026022201 1800 900 604800 86400
+
+mywebsite               IN  NS  ns1.mywebsite.custom.
+ns1.mywebsite.custom.   IN  A   127.0.0.11

@@ -1,0 +1,5 @@
+Zone: .
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+YsVr6Glt5DX5cun6W+JpK1M2M7fCqMezcsD+S9pX0gh9I1PJwFlshC8Zk+gOYubdJNwNNVwnObzYaRkGXQ/U9g==

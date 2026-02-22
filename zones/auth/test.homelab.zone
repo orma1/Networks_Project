@@ -4,7 +4,7 @@ $TTL 86400
 @       IN  SOA ns1.test.homelab. admin.test.homelab. 2026022201 21600 3600 604800 86400
 @       IN  NS  ns1.test.homelab.
 
-ns1     IN  A   127.0.0.12
+ns1     IN  A   127.0.0.5
 server1 IN  A   192.168.1.100
 server2 IN  A   192.168.1.101
 

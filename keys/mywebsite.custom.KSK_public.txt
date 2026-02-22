@@ -1,0 +1,5 @@
+Zone: mywebsite.custom.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+b/hYadzsr647nfasUXE+6zolIcqZITAbQqWOYdhKpltLyODaZmkTf3H7YLZrEOku+HB+vlSLFo2M+zf6rbksOQ==

@@ -1,4 +1,0 @@
-Zone: homelab.
-Algorithm: 13 (ECDSA Curve P-256 with SHA-256)
-DNSKEY Base64:
-Z6CkVqwva/a2YKPAfVQDsjtn2zsVgrMI4jRZZHHc8CkFIkwvpaBj13tavBxzxcs82HwbfNn1ugMlvTew707zGg==
