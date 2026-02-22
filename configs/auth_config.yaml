@@ -1,7 +1,7 @@
 server:
-  bind_ip: "127.0.0.5"
-  bind_port: 53
-  buffer_size: 512
+    bind_ip: '127.0.0.5'
+    bind_port: 53
+    buffer_size: 512
 
 data:
-  zone_file: "zones/auth.zone.json"
+    zone_file: 'zones/auth.zone'

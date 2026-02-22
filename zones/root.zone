@@ -1,0 +1,10 @@
+$ORIGIN .
+$TTL 86400
+
+@           IN  SOA a.root-servers.net. admin.root. 2026022201 1800 900 604800 86400
+
+homelab.    IN  NS  tld.homelab.
+tld.homelab. IN  A   127.0.0.4
+
+custom.     IN  NS  tld.custom.
+tld.custom. IN  A   127.0.0.9

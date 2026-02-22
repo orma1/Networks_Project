@@ -1,11 +1,9 @@
 import socket
 import threading
 import sys
-import os
-import json
 import yaml
 from pathlib import Path
-from dnslib import DNSRecord, QTYPE, RR, A, NS, RCODE
+from dnslib import DNSRecord, QTYPE, RR, RCODE
 
 class LocalTLDServer:
     def __init__(self, config_filename="tld_config.yaml"):
@@ -15,7 +13,7 @@ class LocalTLDServer:
         self.config_path = self.project_root / "configs" / config_filename
         
         self._load_config()
-        self.domain_records = self._load_zone_data()
+        self.zone_records = self._load_zone_data()
         
         self.running = False
         self.server_sock = None
@@ -37,11 +35,19 @@ class LocalTLDServer:
             return {}
         try:
             with open(self.zone_file_path, 'r') as f:
-                data = json.load(f)
-                print(f"[*] Successfully loaded {len(data)} domains for this TLD.")
-                return data
-        except json.JSONDecodeError as e:
-            print(f"[FATAL] Invalid JSON in zone file: {e}")
+                zone_text = f.read()
+            parsed_records = RR.fromZone(zone_text)
+            zone_db = {}
+            for rr in parsed_records:
+                name = str(rr.rname)
+                rtype = rr.rtype
+                if name not in zone_db: zone_db[name] = {}
+                if rtype not in zone_db[name]: zone_db[name][rtype] = []
+                zone_db[name][rtype].append(rr)
+            print(f"[*] Successfully loaded {len(parsed_records)} records from TLD BIND zone.")
+            return zone_db
+        except Exception as e:
+            print(f"[FATAL] Failed to parse TLD zone: {e}")
             sys.exit(1)
 
     def extract_domain(self, qname: str) -> str:
@@ -61,27 +67,27 @@ class LocalTLDServer:
             
             reply = request.reply()
             reply.header.ra = 0 
-            reply.header.aa = 0 # TLD is not the final authority for the A record
+            reply.header.aa = 0 # TLD is not the final authority for A records
             
-            # Identify which domain they are asking for
             domain = self.extract_domain(qname)
             
-            if domain in self.domain_records:
-                print(f"[*] Delegating {qname} -> {self.domain_records[domain]['ns_ip']}")
-                ns_name = self.domain_records[domain]["ns_name"]
-                ns_ip = self.domain_records[domain]["ns_ip"]
+            if domain in self.zone_records and getattr(QTYPE, 'NS') in self.zone_records[domain]:
+                print(f"[*] Delegating {qname} to {domain} nameservers.")
                 
-                # Delegation: Authority and Additional Sections
-                reply.add_auth(RR(domain, QTYPE.NS, rdata=NS(ns_name), ttl=86400))
-                reply.add_ar(RR(ns_name, QTYPE.A, rdata=A(ns_ip), ttl=86400))
+                # 1. Add NS records to Authority Section
+                for ns_rr in self.zone_records[domain][getattr(QTYPE, 'NS')]:
+                    reply.add_auth(ns_rr)
+                    
+                    # 2. Find the Glue A record
+                    target_ns = str(ns_rr.rdata)
+                    if target_ns in self.zone_records and getattr(QTYPE, 'A') in self.zone_records[target_ns]:
+                        for a_rr in self.zone_records[target_ns][getattr(QTYPE, 'A')]:
+                            reply.add_ar(a_rr)
             else:
                 print(f"[*] NXDOMAIN: Domain '{domain}' not registered in this TLD.")
                 reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
-                # Note: In the future, this is exactly where we would attach an NSEC record 
-                # to prove alphabetically that the domain doesn't exist!
 
             sock.sendto(reply.pack(), addr)
-            
         except Exception as e:
             print(f"[ERROR] Handling query: {e}")
 
@@ -98,6 +104,8 @@ class LocalTLDServer:
 
     def start(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         try:
             self.server_sock.bind((self.ip, self.port))
             self.running = True

@@ -34,13 +34,33 @@ class LocalAuthServer:
         if not self.zone_file_path.exists():
             print(f"[WARNING] Zone file not found at {self.zone_file_path}.")
             return {}
+            
         try:
             with open(self.zone_file_path, 'r') as f:
-                data = json.load(f)
-                print(f"[*] Successfully loaded {len(data)} A-records.")
-                return data
-        except json.JSONDecodeError as e:
-            print(f"[FATAL] Invalid JSON in zone file: {e}")
+                zone_text = f.read()
+                
+            # dnslib magic: Parses the entire BIND file into RR objects
+            parsed_records = RR.fromZone(zone_text)
+            
+            # Organize them into a dictionary for instant lookups:
+            # { "www.test.homelab.": { QTYPE.A: [RR1, RR2], QTYPE.CNAME: [RR3] } }
+            zone_db = {}
+            for rr in parsed_records:
+                name = str(rr.rname)
+                rtype = rr.rtype
+                
+                if name not in zone_db:
+                    zone_db[name] = {}
+                if rtype not in zone_db[name]:
+                    zone_db[name][rtype] = []
+                    
+                zone_db[name][rtype].append(rr)
+                
+            print(f"[*] Successfully loaded {len(parsed_records)} records from BIND zone file.")
+            return zone_db
+            
+        except Exception as e:
+            print(f"[FATAL] Failed to parse BIND zone file: {e}")
             sys.exit(1)
 
     def handle_query(self, data, addr, sock):
@@ -53,43 +73,31 @@ class LocalAuthServer:
             reply.header.ra = 0 
             reply.header.aa = 1 
             
-            # --- ANSWER LOGIC ---
+            # Use our new zone_records (renamed from a_records)
             if qname in self.zone_records:
-                node = self.zone_records[qname] # E.g., {"A": "192.168.1.100"}
+                node = self.zone_records[qname]
                 
-                # CASE 1: They specifically asked for a CNAME
-                if qtype == getattr(QTYPE, 'CNAME') and "CNAME" in node:
-                    cname_target = node["CNAME"]
-                    print(f"[*] ANSWER: {qname} (CNAME) -> {cname_target}")
-                    reply.add_answer(RR(qname, QTYPE.CNAME, rdata=CNAME(cname_target), ttl=300))
+                # CASE 1: They asked for a specific record type (like A or NS)
+                if qtype in node:
+                    for rr in node[qtype]:
+                        reply.add_answer(rr)
+                        print(f"[*] ANSWER: Appended {QTYPE[qtype]} record for {qname}")
                 
-                # CASE 2: They asked for an A record
-                elif qtype == getattr(QTYPE, 'A'):
-                    if "A" in node:
-                        # Standard A record response
-                        ip_address = node["A"]
-                        print(f"[*] ANSWER: {qname} (A) -> {ip_address}")
-                        reply.add_answer(RR(qname, QTYPE.A, rdata=A(ip_address), ttl=300))
+                # CASE 2: CNAME resolution (They asked for A, but we only have CNAME)
+                elif getattr(QTYPE, 'CNAME') in node and qtype == getattr(QTYPE, 'A'):
+                    for cname_rr in node[getattr(QTYPE, 'CNAME')]:
+                        reply.add_answer(cname_rr)
                         
-                    elif "CNAME" in node:
-                        # CNAME RESOLUTION!
-                        cname_target = node["CNAME"]
-                        print(f"[*] ALIAS FOUND: {qname} is a CNAME for {cname_target}")
-                        
-                        # Add the CNAME record to the answer
-                        reply.add_answer(RR(qname, QTYPE.CNAME, rdata=CNAME(cname_target), ttl=300))
-                        
-                        # PRO MOVE: Do we also host the A record for the target? If so, attach it!
-                        if cname_target in self.zone_records and "A" in self.zone_records[cname_target]:
-                            target_ip = self.zone_records[cname_target]["A"]
-                            print(f"[*] CNAME CHASE: Piggybacking A record for {cname_target} -> {target_ip}")
-                            reply.add_answer(RR(cname_target, QTYPE.A, rdata=A(target_ip), ttl=300))
-                    else:
-                        print(f"[*] NODATA: Name '{qname}' exists, but no A/CNAME records.")
-                        
+                        # CNAME Chasing: Do we also have the A record for the target?
+                        target_name = str(cname_rr.rdata)
+                        if target_name in self.zone_records and getattr(QTYPE, 'A') in self.zone_records[target_name]:
+                            for target_a_rr in self.zone_records[target_name][getattr(QTYPE, 'A')]:
+                                reply.add_answer(target_a_rr)
+                                print(f"[*] CNAME CHASE: Appended A record for {target_name}")
+                
+                # CASE 3: The name exists, but not the requested type
                 else:
-                    print(f"[*] NODATA: Name '{qname}' exists, but unsupported QTYPE {qtype}.")
-                    
+                    print(f"[*] NODATA: Name '{qname}' exists, but no {QTYPE[qtype]} records.")
             else:
                 print(f"[*] NXDOMAIN: Domain '{qname}' does not exist.")
                 reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
@@ -112,6 +120,8 @@ class LocalAuthServer:
 
     def start(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         try:
             self.server_sock.bind((self.ip, self.port))
             self.running = True

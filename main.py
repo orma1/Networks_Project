@@ -2,7 +2,7 @@ import subprocess
 import time
 import sys
 import os
-
+import signal
 # Define the paths to your individual server launchers
 SERVICES = [
     {"name": "Root Server", "path": "root_ns/root_name_server.py"},
@@ -33,7 +33,7 @@ def start_all():
         
         # Start the script as a separate background process
         # sys.executable ensures it uses the exact same Python environment
-        process = subprocess.Popen([sys.executable, script_path])
+        process = subprocess.Popen([sys.executable, script_path], start_new_session=True)
         active_processes.append((service["name"], process))
         
         # Give each server 0.5 seconds to bind to its port before starting the next
@@ -46,9 +46,14 @@ def stop_all():
     
     for name, process in active_processes:
         print(f"[*] Terminating {name}...")
-        process.terminate() # Sends a polite shutdown signal (like Ctrl+C)
-        process.wait()      # Waits for it to finish saving cache/closing sockets
-        
+        try:
+            # Send the polite Ctrl+C signal instead of a harsh kill
+            process.send_signal(signal.SIGINT)
+            process.wait(timeout=3) # Give it 3 seconds to close its sockets
+        except Exception as e:
+            print(f"[!] Error stopping {name}: {e}")
+            process.terminate() # Fallback to harsh kill if it's completely frozen
+            
     print("\n[*] All DNS services are offline. Goodbye!")
     sys.exit(0)
 

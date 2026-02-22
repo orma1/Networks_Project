@@ -19,7 +19,7 @@ class LocalRootServer:
         self._load_config()
         
         # 3. Load Zone Data
-        self.tld_records = self._load_zone_data()
+        self.zone_records = self._load_zone_data()
         
         self.running = False
         self.server_sock = None
@@ -37,23 +37,24 @@ class LocalRootServer:
 
     def _load_zone_data(self) -> dict:
         if not self.zone_file_path.exists():
-            print(f"[WARNING] Zone file not found at {self.zone_file_path}. Starting with empty zones.")
+            print(f"[WARNING] Zone file not found at {self.zone_file_path}.")
             return {}
-            
         try:
             with open(self.zone_file_path, 'r') as f:
-                data = json.load(f)
-                print(f"[*] Successfully loaded {len(data)} TLD zones.")
-                return data
-        except json.JSONDecodeError as e:
-            print(f"[FATAL] Invalid JSON in zone file: {e}")
+                zone_text = f.read()
+            parsed_records = RR.fromZone(zone_text)
+            zone_db = {}
+            for rr in parsed_records:
+                name = str(rr.rname)
+                rtype = rr.rtype
+                if name not in zone_db: zone_db[name] = {}
+                if rtype not in zone_db[name]: zone_db[name][rtype] = []
+                zone_db[name][rtype].append(rr)
+            print(f"[*] Successfully loaded {len(parsed_records)} records from Root BIND zone.")
+            return zone_db
+        except Exception as e:
+            print(f"[FATAL] Failed to parse Root zone: {e}")
             sys.exit(1)
-
-    def extract_tld(self, qname: str) -> str:
-        parts = qname.strip(".").split(".")
-        if len(parts) > 0:
-            return parts[-1] + "."
-        return ""
 
     def handle_query(self, data, addr, sock):
         try:
@@ -66,22 +67,31 @@ class LocalRootServer:
 
             tld = self.extract_tld(qname)
             
-            if tld in self.tld_records:
-                print(f"[*] Delegating {qname} -> {self.tld_records[tld]['ns_ip']}")
-                ns_name = self.tld_records[tld]["ns_name"]
-                ns_ip = self.tld_records[tld]["ns_ip"]
+            if tld in self.zone_records and getattr(QTYPE, 'NS') in self.zone_records[tld]:
+                print(f"[*] Delegating {qname} to .{tld} nameservers.")
                 
-                # Delegation logic
-                reply.add_auth(RR(tld, QTYPE.NS, rdata=NS(ns_name), ttl=86400))
-                reply.add_ar(RR(ns_name, QTYPE.A, rdata=A(ns_ip), ttl=86400))
+                # 1. Add NS records to Authority Section
+                for ns_rr in self.zone_records[tld][getattr(QTYPE, 'NS')]:
+                    reply.add_auth(ns_rr)
+                    
+                    # 2. Find the Glue A record for this NS and add to Additional Section
+                    target_ns = str(ns_rr.rdata)
+                    if target_ns in self.zone_records and getattr(QTYPE, 'A') in self.zone_records[target_ns]:
+                        for a_rr in self.zone_records[target_ns][getattr(QTYPE, 'A')]:
+                            reply.add_ar(a_rr)
             else:
                 print(f"[*] NXDOMAIN: Unknown TLD '{tld}' for query {qname}")
                 reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
 
             sock.sendto(reply.pack(), addr)
-            
         except Exception as e:
             print(f"[ERROR] Handling query: {e}")
+
+    def extract_tld(self, qname: str) -> str:
+        parts = qname.strip(".").split(".")
+        if len(parts) > 0:
+            return parts[-1] + "."
+        return ""
 
     def _listening_loop(self):
         print(f"[*] Root Server Active on {self.ip}:{self.port}")
@@ -96,6 +106,8 @@ class LocalRootServer:
 
     def start(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         try:
             self.server_sock.bind((self.ip, self.port))
             self.running = True

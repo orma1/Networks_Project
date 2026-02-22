@@ -1,0 +1,8 @@
+# DNS Packet Parsing and Crafting
+dnslib>=0.9.23
+
+# Configuration File Parsing
+PyYAML>=6.0.1
+
+# DNSSEC Cryptography (ECDSA Keys and Signatures)
+cryptography>=42.0.0
