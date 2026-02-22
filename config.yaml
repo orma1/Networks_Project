@@ -1,0 +1,17 @@
+dhcp_server:
+  enabled: true
+  interface: eth0
+  loopback: false
+  loopback_pool:
+    start_ip: 127.0.0.10
+    end_ip: 127.0.0.30
+  outside_pool:
+    start_ip: 192.168.10.10
+    end_ip: 192.168.10.12
+  subnet_mask: 255.255.255.0
+  gateway: 10.0.0.138
+  dns_servers:
+    - 8.8.8.8
+    - 8.8.4.4
+  lease_time: 30
+  domain_name: example.com
