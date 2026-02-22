@@ -80,6 +80,9 @@ class Resolver:
     def handle_query(self, data, addr, socket_ref):
         try:
             request = DNSRecord.parse(data)
+            if request.header.qr == 1:
+                print("[WARNING] Received a DNS response on the resolver. Ignoring.")
+                return
             qname:str = str(request.q.qname)
             qtype:int = request.q.qtype
             
@@ -110,7 +113,7 @@ class Resolver:
                 real_reply = DNSRecord.parse(upstream_data)
                 
                 # Fix Flags
-                real_reply.header.aa = 0 
+                real_reply.header.aa = 0 # BUG
                 real_reply.header.ra = 1 
                 
                 # Only cache successful responses (NOERROR)
