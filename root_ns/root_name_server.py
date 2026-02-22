@@ -30,7 +30,7 @@ class LocalRootServer:
             
         with open(self.config_path, 'r') as f:
             config = yaml.safe_load(f)
-            self.ip = config['server'].get('bind_ip', '127.0.0.10')
+            self.ip = config['server'].get('bind_ip', '127.0.0.3')
             self.port = config['server'].get('bind_port', 53)
             self.buffer_size = config['server'].get('buffer_size', 512)
             self.zone_file_path = self.project_root / config['data'].get('zone_file', 'zones/root.zone.json')

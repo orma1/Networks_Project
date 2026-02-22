@@ -1,7 +1,6 @@
 import socket
 import threading
 import sys
-import os
 import json
 import yaml
 from pathlib import Path

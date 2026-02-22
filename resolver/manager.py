@@ -35,7 +35,8 @@ class ResolverManager:
             # Start subsystems
             self.resolver.start()
             # self.api_server.start()
-            
+            # TODO: Add more subsystems here as needed (e.g., monitoring, analytics, etc.)
+
             # The Main Thread Keep-Alive Loop
             while not self._shutdown_requested:
                 time.sleep(0.5)

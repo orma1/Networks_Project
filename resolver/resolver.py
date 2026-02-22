@@ -80,8 +80,8 @@ class Resolver:
     def handle_query(self, data, addr, socket_ref):
         try:
             request = DNSRecord.parse(data)
-            qname = str(request.q.qname)
-            qtype = request.q.qtype
+            qname:str = str(request.q.qname)
+            qtype:int = request.q.qtype
             
             # --- STEP 1: CACHE LOOKUP ---
             cached_response = self.cache.get(qname, qtype)
@@ -89,11 +89,11 @@ class Resolver:
                 print(f"[CACHE HIT] {qname}")
                 reply = cached_response
                 reply.header.id = request.header.id
+                reply.header.aa = 0 # Cache is not authoritative
                 socket_ref.sendto(reply.pack(), addr)
                 return
 
             print(f"[CACHE MISS] Resolving {qname}...")
-            
             # --- STEP 2: ROUTING & RESOLUTION ---
             try:
                 # 1. Ask the Local DNS Tree first
@@ -152,7 +152,6 @@ class Resolver:
     def start(self):
         """
         Main entry point. Sets up the socket and starts the listener thread.
-        Then blocks the MAIN thread waiting for Ctrl+C.
         """
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
