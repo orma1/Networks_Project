@@ -1,17 +1,15 @@
 dhcp_server:
-  enabled: true
-  interface: eth0
-  loopback: false
-  loopback_pool:
-    start_ip: 127.0.0.10
-    end_ip: 127.0.0.30
-  outside_pool:
-    start_ip: 192.168.10.10
-    end_ip: 192.168.10.12
-  subnet_mask: 255.255.255.0
-  gateway: 10.0.0.138
+  loopback: true
+  lease_time: 40  # Seconds. Client will renew at 20s.
+  persistence_file: "leases.json"
+  subnet_mask: "255.255.255.0"
+  gateway: "192.168.1.1"
   dns_servers:
-    - 8.8.8.8
-    - 8.8.4.4
-  lease_time: 30
-  domain_name: example.com
+    - "8.8.8.8"
+    - "1.1.1.1"
+  loopback_pool:
+    start_ip: "127.0.0.10"
+    end_ip: "127.0.0.30"
+  outside_pool:
+    start_ip: "192.168.1.100"
+    end_ip: "192.168.1.200"
