@@ -22,6 +22,7 @@ class Resolver:
             save_interval=self.config.save_interval
         )
         self.dnskey_cache = {}
+        self.ds_cache = {}
         self.forwarder = Forwarder(timeout=self.config.timeout)
         self.running = False
         self.server_socket = None
@@ -53,6 +54,16 @@ class Resolver:
                 
                 # CASE 3: We got a Delegation
                 if len(response.auth) > 0:
+                    if getattr(self, 'dnssec_enabled', False):
+                        for auth_rr in response.auth:
+                            if auth_rr.rtype == getattr(QTYPE, 'TXT'):
+                                txt_data = b"".join(auth_rr.rdata.data).decode('utf-8')
+                                if txt_data.startswith("DS|"):
+                                    child_domain = str(auth_rr.rname)
+                                    ds_hash = txt_data.split("|")[1]
+                                    self.ds_cache[child_domain] = ds_hash
+                                    print(f"    [+] DNSSEC: Captured DS hash for {child_domain} from Parent.")
+                    
                     next_ip = None
                     for ar in response.ar: 
                         if ar.rtype == getattr(QTYPE, 'A'):
@@ -191,12 +202,14 @@ class Resolver:
         apex_domain = ".".join(domain.strip(".").split(".")[-2:]) + "."
         
         zsk_pub = None
+        ksk_pub = None
         
         # 2. THE CACHE CHECK
         if apex_domain in self.dnskey_cache:
             print(f"    [+] KEY CACHE HIT: Using stored ZSK for {apex_domain}")
             zsk_pub = self.dnskey_cache[apex_domain].get('ZSK')
-            
+            ksk_pub = self.dnskey_cache[apex_domain].get('KSK')
+
         else:
             # 3. THE CACHE MISS (Network Fetch)
             print(f"    -> KEY CACHE MISS: Fetching DNSKEYs for {apex_domain} from {auth_ip}...")
@@ -212,6 +225,7 @@ class Resolver:
                 ksk_pub = None
                 zsk_pub_temp = None
                 zsk_signature = None
+                ksk_signature = None
 
                 for rr in key_reply.rr:
                     if rr.rtype == getattr(QTYPE, 'TXT'):
@@ -220,12 +234,23 @@ class Resolver:
                         
                         if txt_val.startswith("DNSKEY|257|"):
                             ksk_pub = txt_val.split("|")[2]
+                        elif txt_val.startswith("RRSIG|DNSKEY|257|"):
+                            ksk_signature = txt_val.split("|")[3]
                         elif txt_val.startswith("DNSKEY|256|"):
                             zsk_pub_temp = txt_val.split("|")[2]
                         elif txt_val.startswith("RRSIG|DNSKEY|256|"):
                             zsk_signature = txt_val.split("|")[3]
                         
-                if zsk_pub_temp and ksk_pub and zsk_signature:
+                if ksk_pub and zsk_pub_temp and ksk_signature and zsk_signature:
+                    
+                    print(f"    -> Verifying KSK self-signature (Integrity Check)...")
+                    ksk_data_string = f"{apex_domain}|DNSKEY|257|{ksk_pub}"
+                    is_ksk_valid = DNSSECValidator.verify_signature(ksk_pub, ksk_data_string, ksk_signature)
+                    
+                    if not is_ksk_valid:
+                        print("    [!] DNSSEC BOGUS: KSK self-signature failed! Key is corrupted or forged.")
+                        return False
+                    print("    [+] DNSSEC SECURE: KSK self-signature is intact.")
 
                     print(f"    -> Verifying ZSK signature using the KSK...")
                     zsk_data_string = f"{apex_domain}|DNSKEY|256|{zsk_pub_temp}"
@@ -245,6 +270,7 @@ class Resolver:
                     print("    [!] DNSSEC BOGUS: No ZSK found in Auth response!")
                     return False
                     
+                    
             except socket.timeout:
                 print("    [!] DNSSEC ERROR: Timeout fetching keys.")
                 return False
@@ -253,8 +279,23 @@ class Resolver:
                 return False
             finally:
                 sock.close()
+            
+        # Notice this is outdented! It runs whether we hit the cache OR fetched from the network!
+        if apex_domain != ".":
+            if apex_domain in self.ds_cache:
+                parent_ds_hash = self.ds_cache[apex_domain]
+                print(f"    -> Verifying KSK against Parent DS hash...")
+                
+                is_ds_valid = DNSSECValidator.verify_ds_record(ksk_pub, parent_ds_hash)
+                if not is_ds_valid:
+                    print("    [!] DNSSEC BOGUS: KSK does not match Parent DS!")
+                    return False
+                print("    [+] DNSSEC SECURE: Parent DS vouches for this KSK!")
+            else:
+                print(f"    [!] DNSSEC BOGUS: No DS record found for {apex_domain}. Chain broken!")
+                return False
 
-        # 4. Do the actual math!
+        # --- Phase 7: Do the actual math on the IP address! ---
         data_to_verify = f"{domain}|{qtype_str}|{rdata_str}"
         print(f"    -> Running ECDSA Math on: {data_to_verify}")
         

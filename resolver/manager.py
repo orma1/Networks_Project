@@ -2,7 +2,7 @@ import time
 import signal
 import sys
 import argparse
-
+from api_server import APIServer
 from config_loader import ConfigLoader
 from resolver import Resolver
 
@@ -21,7 +21,8 @@ class ResolverManager:
         self.resolver = Resolver(self.config, dnssec_enabled)
         
         # 3. Future Placeholder: self.api_server = APIServer(self.resolver)
-        
+        self.api_server = APIServer(self.resolver, host="127.0.0.1", port=8000)
+
         self._shutdown_requested = False
 
     def start_all(self):
@@ -34,8 +35,7 @@ class ResolverManager:
             
             # Start subsystems
             self.resolver.start()
-            # self.api_server.start()
-            # TODO: Add more subsystems here as needed (e.g., monitoring, analytics, etc.)
+            self.api_server.start()
 
             # The Main Thread Keep-Alive Loop
             while not self._shutdown_requested:
@@ -54,7 +54,7 @@ class ResolverManager:
         self._shutdown_requested = True
         
         self.resolver.stop()
-        # self.api_server.stop()
+        self.api_server.stop()
         
         print("[*] All subsystems offline. Goodbye.")
         sys.exit(0)
