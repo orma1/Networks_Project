@@ -62,7 +62,8 @@ def stop_all():
         print(f"[*] Terminating {name}...")
         try:
             # Send the polite Ctrl+C signal instead of a harsh kill
-            process.send_signal(signal.SIGINT)
+            # process.send_signal(signal.SIGINT)
+            process.terminate()
             process.wait(timeout=3) # Give it 3 seconds to close its sockets
         except Exception as e:
             print(f"[!] Error stopping {name}: {e}")

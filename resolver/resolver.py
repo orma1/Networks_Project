@@ -315,7 +315,8 @@ class Resolver:
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            if hasattr(socket, 'SO_REUSEPORT'):
+                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             self.server_socket.bind((self.config.bind_ip, self.config.bind_port))
             self.running = True
 

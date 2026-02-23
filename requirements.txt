@@ -6,3 +6,10 @@ PyYAML>=6.0.1
 
 # DNSSEC Cryptography (ECDSA Keys and Signatures)
 cryptography>=42.0.0
+
+# API Server Dashboard
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# Automated Integration Testing
+pytest>=8.0.0
