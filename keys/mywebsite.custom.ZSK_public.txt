@@ -2,4 +2,4 @@ Zone: mywebsite.custom.
 Type: ZSK
 Flag: 256
 DNSKEY Base64:
-9guAcOs3dXXW7DE9gD1e+7cA4YEwcZpvItzzFHVIxfaNBrvkLAclXejpXPn2CAStBBCgI52bk1y8XJD50W1jjQ==
+Rg523wGvE60hfIcb5jN5Fne7LbWKdC2QK+2kYFoTTpnnrXYIWUqzNoxeb7fAQbEVS8t4jRT+rmVJ2XLltpcv+A==

@@ -2,13 +2,15 @@ import socket
 import threading
 import sys
 import yaml
+import argparse
 from pathlib import Path
 from dnslib import DNSRecord, QTYPE, RR, RCODE
 
 class LocalTLDServer:
-    def __init__(self, config_filename="tld_config.yaml"):
+    def __init__(self, config_filename="tld_config.yaml", dnssec_enabled=False ):
         print("[*] Booting Local TLD Server (.homelab)...")
-        
+        self.dnssec_enabled = dnssec_enabled
+
         self.project_root = Path(__file__).resolve().parent.parent
         self.config_path = self.project_root / "configs" / config_filename
         
@@ -44,6 +46,16 @@ class LocalTLDServer:
 
         # Loop through every .zone file in the folder
         for zone_file in zone_dir.glob("*.zone"):
+            is_signed_file = str(zone_file).endswith(".signed.zone")
+            
+            # If DNSSEC is ON, skip standard files
+            if self.dnssec_enabled and not is_signed_file:
+                continue
+                
+            # If DNSSEC is OFF, skip signed files
+            if not self.dnssec_enabled and is_signed_file:
+                continue
+
             try:
                 with open(zone_file, 'r') as f:
                     zone_text = f.read()
@@ -105,6 +117,13 @@ class LocalTLDServer:
                     if target_ns in self.zone_records and getattr(QTYPE, 'A') in self.zone_records[target_ns]:
                         for a_rr in self.zone_records[target_ns][getattr(QTYPE, 'A')]:
                             reply.add_ar(a_rr)
+
+                    if self.dnssec_enabled and getattr(QTYPE, 'TXT') in self.zone_records[domain]:
+                        for txt_rr in self.zone_records[domain][getattr(QTYPE, 'TXT')]:
+                            txt_data = str(txt_rr.rdata).strip('"')
+                            if txt_data.startswith("DS|") or txt_data.startswith("RRSIG|DS|"):
+                                reply.add_auth(txt_rr)
+                                print(f"    [+] DNSSEC: Attached DS and RRSIG for {domain}")
             else:
                 print(f"[*] NXDOMAIN: Domain '{domain}' not registered in this TLD.")
                 reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
@@ -152,5 +171,8 @@ class LocalTLDServer:
         sys.exit(0)
 
 if __name__ == "__main__":
-    tld = LocalTLDServer()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dnssec', action='store_true')
+    args = parser.parse_args()
+    tld = LocalTLDServer(dnssec_enabled=args)
     tld.start()

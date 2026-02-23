@@ -2,4 +2,4 @@ Zone: mywebsite.custom.
 Type: KSK
 Flag: 257
 DNSKEY Base64:
-b/hYadzsr647nfasUXE+6zolIcqZITAbQqWOYdhKpltLyODaZmkTf3H7YLZrEOku+HB+vlSLFo2M+zf6rbksOQ==
+7eda91DMfukU4YDEYFxT7oE8XraVAK5ucIzjSzDJ+0SBuzsHNH5ErufSk1QAFxgWYbNQHAMdsr3HOpBcGiPkoQ==

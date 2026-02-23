@@ -2,4 +2,4 @@ Zone: homelab.
 Type: KSK
 Flag: 257
 DNSKEY Base64:
-8rTFqdHYIhs2AhfAobuMc8TY20wIkdg6J49+QPl0wtTUO8OoJYmD60WEfnNS/KvRGJF+ZaglefeTCpKysSwpqg==
+DuClTJcuMMg0BxztIf4YMSStTZd52o5r7nNOxf0WlFFaCF4IgKpnBLhCTOrzh+8bw44ATHNxjpEygNzXADb+/A==

@@ -2,4 +2,4 @@ Zone: test.homelab.
 Type: ZSK
 Flag: 256
 DNSKEY Base64:
-JKpzddinu6gDxnMuRJKB4NgZ6E5ZVHy2fCNdHuuDYAimQZrz4NmnjICtGvX5fE77WaKfzZHjkiTjYn9mcYPqDQ==
+ckoSmujEXDj+7uKdTUDQ4RKU30WFuoqksQLg7vRiZpBxIT/5LnmBKOnoATD33ne2IbGGI2dTe8yEv9CbFqn+Og==

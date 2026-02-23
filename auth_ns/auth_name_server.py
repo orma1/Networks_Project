@@ -1,15 +1,16 @@
 import socket
 import threading
 import sys
-import json
+import argparse
 import yaml
 from pathlib import Path
-from dnslib import DNSRecord, QTYPE, RR, A, CNAME, RCODE
+from dnslib import DNSRecord, QTYPE, RR, RCODE
 
 class LocalAuthServer:
-    def __init__(self, config_filename="auth_config.yaml"):
+    def __init__(self, config_filename="auth_config.yaml", dnssec_enabled=False):
         print("[*] Booting Local Authoritative Server (test.homelab)...")
-        
+        self.dnssec_enabled = dnssec_enabled
+
         self.project_root = Path(__file__).resolve().parent.parent
         self.config_path = self.project_root / "configs" / config_filename
         
@@ -45,6 +46,14 @@ class LocalAuthServer:
 
         # Loop through every .zone file in the folder
         for zone_file in zone_dir.glob("*.zone"):
+            is_signed_file = str(zone_file).endswith(".signed.zone")
+            
+            # If DNSSEC is ON, skip standard files
+            if self.dnssec_enabled and not is_signed_file:
+                continue
+            # If DNSSEC is OFF, skip signed files
+            if not self.dnssec_enabled and is_signed_file:
+                continue
             try:
                 with open(zone_file, 'r') as f:
                     zone_text = f.read()
@@ -92,18 +101,42 @@ class LocalAuthServer:
                     for rr in node[qtype]:
                         reply.add_answer(rr)
                         print(f"[*] ANSWER: Appended {QTYPE[qtype]} record for {qname}")
+
+                    if self.dnssec_enabled and getattr(QTYPE, 'TXT') in node:
+                        for txt_rr in node[getattr(QTYPE, 'TXT')]:
+                            txt_data = str(txt_rr.rdata).strip('"')
+                            # If the TXT record is an RRSIG for the record type we just answered, attach it!
+                            if txt_data.startswith(f"RRSIG|{QTYPE[qtype]}|"):
+                                reply.add_answer(txt_rr)
+                                print(f"    [+] DNSSEC: Attached RRSIG for {QTYPE[qtype]}")
                 
                 # CASE 2: CNAME resolution (They asked for A, but we only have CNAME)
                 elif getattr(QTYPE, 'CNAME') in node and qtype == getattr(QTYPE, 'A'):
                     for cname_rr in node[getattr(QTYPE, 'CNAME')]:
                         reply.add_answer(cname_rr)
+
+                        # Attach CNAME Signature
+                        if self.dnssec_enabled and getattr(QTYPE, 'TXT') in node:
+                            for txt_rr in node[getattr(QTYPE, 'TXT')]:
+                                if str(txt_rr.rdata).strip('"').startswith("RRSIG|CNAME|"):
+                                    reply.add_answer(txt_rr)
+                                    print(f"    [+] DNSSEC: Attached RRSIG for CNAME")
+                                    
                         
                         # CNAME Chasing: Do we also have the A record for the target?
                         target_name = str(cname_rr.rdata)
                         if target_name in self.zone_records and getattr(QTYPE, 'A') in self.zone_records[target_name]:
+                            target_node = self.zone_records[target_name]
                             for target_a_rr in self.zone_records[target_name][getattr(QTYPE, 'A')]:
                                 reply.add_answer(target_a_rr)
                                 print(f"[*] CNAME CHASE: Appended A record for {target_name}")
+
+                        # Attach Chased A Record Signature
+                            if self.dnssec_enabled and getattr(QTYPE, 'TXT') in target_node:
+                                for txt_rr in target_node[getattr(QTYPE, 'TXT')]:
+                                    if str(txt_rr.rdata).strip('"').startswith("RRSIG|A|"):
+                                        reply.add_answer(txt_rr)
+                                        print(f"    [+] DNSSEC: Attached RRSIG for Chased A record")
                 
                 # CASE 3: The name exists, but not the requested type
                 else:
@@ -156,5 +189,8 @@ class LocalAuthServer:
         sys.exit(0)
 
 if __name__ == "__main__":
-    auth = LocalAuthServer()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dnssec', action='store_true')
+    args = parser.parse_args()
+    auth = LocalAuthServer(dnssec_enabled=args)
     auth.start()

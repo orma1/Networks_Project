@@ -1,0 +1,17 @@
+$ORIGIN homelab.
+$TTL 86400
+
+@ IN TXT "DNSKEY|257|DuClTJcuMMg0BxztIf4YMSStTZd52o5r7nNOxf0WlFFaCF4IgKpnBLhCTOrzh+8bw44ATHNxjpEygNzXADb+/A=="
+@ IN TXT "DNSKEY|256|SaIhr1n2IU8LwxMQoGOHCUoz7X8dEfZ+Ru0InMs10FIMmS5pk0YUKbYvCpCRGbXRTB1vBSdUN0yivLbGroGC9Q=="
+@ IN TXT "RRSIG|DNSKEY|257|MEYCIQDt+DtP7l1zQ/D1migeYOcLO0Beyo67r4uybsouMpfZUAIhAOXYEzLZFKwx6X1EfsTGoKIBcDkttSbVRBAFYz/+MEfE"
+@ IN TXT "RRSIG|DNSKEY|256|MEUCIQChFjSflot1w9ETSxVgET8XkaL2AAAnXVhL94vKnXySxAIgW0+QUmsvn3RuRXVNcwjj99ae55JeOrSErTHUWVFEyfM="
+
+test.homelab. IN TXT "DS|c731d6b0b11ddf0499ef3934dd9faaf080d2c77332e182459aec642993b687a9"
+test.homelab. IN TXT "RRSIG|DS|MEUCIQDYIbcxzwTiYyhcHXdp+Q9nMOKHcp6kJMqn3a9VoQHb3AIgQoiXlHP3yGU53AQ3IcX0Y/dVjSruOV8NdxcZ16FoJs4="
+
+homelab.                86400   IN      SOA     tld.homelab. admin.homelab. 2026022201 1800 900 604800 86400
+test.homelab.           86400   IN      NS      ns1.test.homelab.
+test.homelab. IN TXT "RRSIG|NS|MEUCIQDS8ukc03hmg4zhUbLv4yxlWZwIYacttzv+Lpx+LKDWvwIgeqFhyJwDs/WH/qveYf+R/Rv3Xm5Pv6rtdAwWUq79FV4="
+
+ns1.test.homelab.       86400   IN      A       127.0.0.5
+ns1.test.homelab. IN TXT "RRSIG|A|MEUCID5NWjxoSrmMxyZV8S1wmTT7coauOdVKvCoUTXHruAIRAiEA2ceem9W+c0dek/vawb7VxQuIL2/M+Hs1jE+7916MmLA="

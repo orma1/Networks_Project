@@ -1,0 +1,17 @@
+$ORIGIN custom.
+$TTL 86400
+
+@ IN TXT "DNSKEY|257|abiOsb3nW278czKZBoWsV+JNbBGKyQ+sLIBgfmrhY5I5gtZsFugC48RvrMdoqxmj3TDiTuhWAiztOJ6ZE5XVXA=="
+@ IN TXT "DNSKEY|256|KnER6Wtz8IbJfmBkaGtKIkb0+R1BFL3QiaUfzopZnidq+EwJkZUw6r1gFuMdCMjr/VerIhFzR4LcolF80ljkiw=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCIAOJ01MRneRNkFlO9i5V77ToR50dkZ3KWCI7iHYWuyZiAiEA8QthEOVJaXDUtlQ2sSZFQQ9xJQpjXBA+vawjTvkbL/k="
+@ IN TXT "RRSIG|DNSKEY|256|MEQCIB/oUMBQTo4CofoWr/fzLPDKeyEsi8YoHXaiJzPcey6BAiBkR7/fLc9vAbKIgXOzOqncburCKJCmhcmUcuqUaZQs8Q=="
+
+mywebsite.custom. IN TXT "DS|65a132f1d0de615f4b813b2215dbdf55d3e878efa89bc601aa8eaa84d44b8485"
+mywebsite.custom. IN TXT "RRSIG|DS|MEUCIQChLVFxftpQ8aHOaAsPl0gmPfHKCWMGrWFNsAd/4Uo3kgIgGd9iuoZytYF9ijrfd7S/pzdtLWVduXBS0M7bJaytYaY="
+
+custom.                 86400   IN      SOA     tld.custom. admin.custom. 2026022201 1800 900 604800 86400
+mywebsite.custom.       86400   IN      NS      ns1.mywebsite.custom.
+mywebsite.custom. IN TXT "RRSIG|NS|MEUCID71sAeHcfZ2JxyzK4zYsWQOwdo9Yc0bNDbDFAu8OZbLAiEA3WJPqNr9TOyT/KoxlfyuTR1SIw3HWD9JD/KBSBV5CDc="
+
+ns1.mywebsite.custom.   86400   IN      A       127.0.0.11
+ns1.mywebsite.custom. IN TXT "RRSIG|A|MEQCIAtOitn3su9qU5ENBynYnLCW5PA57RM6sjkWQZtublmIAiBo0qROr3gLU2igTna3DG23yrQbiub7nOyfVABYf5+xoQ=="

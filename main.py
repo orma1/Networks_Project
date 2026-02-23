@@ -3,6 +3,7 @@ import time
 import sys
 import os
 import signal
+import argparse
 # Define the paths to your individual server launchers
 SERVICES = [
     {"name": "Root Server", "path": "root_ns/root_name_server.py"},
@@ -13,15 +14,18 @@ SERVICES = [
 
 # Keep track of running processes
 active_processes = []
-
-def start_all():
+def start_all(args):
     print("=" * 50)
     print("[*] Initiating Custom DNS Infrastructure Boot Sequence...")
+    
+    mode_text = "DNSSEC SECURE MODE" if args.dnssec else "STANDARD INSECURE MODE"
+    print(f"[*] Mode: {mode_text}")
     print("=" * 50)
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
     for service in SERVICES:
+        name = service["name"]
         script_path = os.path.join(base_dir, service["path"])
         
         # Safety check
@@ -29,15 +33,25 @@ def start_all():
             print(f"[!] ERROR: Could not find {script_path}")
             continue
             
-        print(f"\n[*] Launching {service['name']}...")
+        print(f"\n[*] Launching {name}...")
         
-        # Start the script as a separate background process
-        # sys.executable ensures it uses the exact same Python environment
-        process = subprocess.Popen([sys.executable, script_path], start_new_session=True)
-        active_processes.append((service["name"], process))
+        # Build the command dynamically
+        cmd = [sys.executable, script_path]
+        
+        # Pass the flag down to the child servers!
+        # Note: We exclude the Resolver here so it doesn't crash if it 
+        # doesn't have an argparse block built for it yet.
+        if args.dnssec:
+            cmd.append('--dnssec')
+            
+        try:
+            process = subprocess.Popen(cmd, start_new_session=True)
+            active_processes.append((name, process))
+        except Exception as e:
+            print(f"[FATAL] Failed to start {name}: {e}")
         
         # Give each server 0.5 seconds to bind to its port before starting the next
-        time.sleep(0.5) 
+        time.sleep(0.5)    
 
 def stop_all():
     print("\n" + "=" * 50)
@@ -57,10 +71,16 @@ def stop_all():
     print("\n[*] All DNS services are offline. Goodbye!")
     sys.exit(0)
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Custom DNS Infrastructure Master")
+    parser.add_argument('--dnssec', action='store_true', help='Enable DNSSEC mode (loads .signed.zone files)')
+    args = parser.parse_args()
+    return args
+
 if __name__ == "__main__":
     try:
-        start_all()
-        
+        user_args = parse_args()
+        start_all(args=user_args)
         print("\n" + "=" * 50)
         print("[*] ALL SYSTEMS ONLINE AND LISTENING")
         print("[*] Press Ctrl+C at any time to gracefully stop all servers.")

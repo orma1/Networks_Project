@@ -1,20 +1,27 @@
 import os
 import base64
+import hashlib
+from pathlib import Path
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from dnslib import RR, QTYPE
 
-def load_private_key(zone_name):
-    path = os.path.join("keys", f"{zone_name}private.pem")
+def load_private_key(zone_name, key_type):
+    path = Path("keys") / f"{zone_name}{key_type}_private.pem"
     with open(path, "rb") as f:
         return serialization.load_pem_private_key(f.read(), password=None)
 
-def load_public_key_b64(zone_name):
-    path = os.path.join("keys", f"{zone_name}public.txt")
+def load_public_key_b64(zone_name, key_type):
+    path = Path("keys") / f"{zone_name}{key_type}_public.txt"
     with open(path, "r") as f:
-        lines = f.readlines()
-        return lines[-1].strip()
+        data = f.read()
+        
+    # Strip out that metadata prefix so we only get the Base64 key
+    if ":" in data:
+        data = data.split(":")[-1]
+        
+    return "".join(data.split())
 
 def sign_data(private_key, data_string):
     """Signs a string using ECDSA and SHA-256."""
@@ -24,64 +31,132 @@ def sign_data(private_key, data_string):
     )
     return base64.b64encode(signature).decode('utf-8')
 
-def sign_zone():
-    zone_name = "test.homelab."
-    input_file = "zones/auth.zone"
-    output_file = "zones/auth.signed.zone"
+def discover_zones(project_root):
+    zones_to_sign = []
+    zones_dir = project_root / "zones"
     
-    print(f"[*] Loading BIND zone: {input_file}")
-    with open(input_file, "r") as f:
+    print("[*] Scanning directories for zone files...")
+    
+    # Recursively find all .zone files across root, tld, and auth folders
+    for zone_file in zones_dir.rglob("*.zone"):
+        # Skip files that are already signed
+        if str(zone_file).endswith(".signed.zone"):
+            continue
+            
+        # 1. Deduce the Zone Name from the filename
+        filename = zone_file.name
+        if filename == "root.zone":
+            zone_name = "."
+        else:
+            # 'homelab.zone' -> 'homelab.' | 'test.homelab.zone' -> 'test.homelab.'
+            zone_name = filename.replace(".zone", ".")
+            
+        # 2. Discover Child Delegations by analyzing NS records
+        child_zones = set()
+        try:
+            with open(zone_file, "r") as f:
+                records = RR.fromZone(f.read())
+                for rr in records:
+                    if QTYPE[rr.rtype] == "NS":
+                        rname_str = str(rr.rname)
+                        # If the NS record points to a subdomain, it's a child delegation!
+                        if rname_str != zone_name:
+                            child_zones.add(rname_str)
+        except Exception as e:
+            print(f"[!] Error parsing {filename} for children: {e}")
+            
+        # 3. Build the output path
+        out_path = zone_file.with_name(filename.replace(".zone", ".signed.zone"))
+        
+        zones_to_sign.append((zone_file, out_path, zone_name, list(child_zones)))
+        print(f"    [+] Found: {zone_name} (Children: {list(child_zones)})")
+        
+    return zones_to_sign
+
+def sign_zone(input_path, output_path, zone_name, child_zones):
+    print(f"[*] Signing Zone: {zone_name} from {input_path.name}")
+    with open(input_path, "r") as f:
         zone_text = f.read()
         
-    # Let dnslib parse the text so we have clean objects to work with
     records = RR.fromZone(zone_text)
     
-    print(f"[*] Loading ECDSA keys for {zone_name}")
-    priv_key = load_private_key(zone_name)
-    pub_key_b64 = load_public_key_b64(zone_name)
+    # Load all 4 key components for the zone
+    ksk_priv = load_private_key(zone_name, "KSK")
+    zsk_priv = load_private_key(zone_name, "ZSK")
+    ksk_pub = load_public_key_b64(zone_name, "KSK")
+    zsk_pub = load_public_key_b64(zone_name, "ZSK")
 
-    # We rebuild the file line by line
     signed_lines = [
         f"$ORIGIN {zone_name}",
         "$TTL 86400",
         ""
     ]
 
-    print(f"[*] Injecting and signing DNSKEY for {zone_name}")
-    # 1. Publish the Public Key
-    signed_lines.append(f'@ IN TXT "DNSKEY|{pub_key_b64}"')
-    
-    # 2. Sign the Public Key
-    dnskey_sig = sign_data(priv_key, f"{zone_name}|DNSKEY|{pub_key_b64}")
-    signed_lines.append(f'@ IN TXT "RRSIG|DNSKEY|{dnskey_sig}"')
+    print(f"    -> Injecting and KSK-signing DNSKEY records")
+    # 1. Publish both Public Keys (Flag 257 = KSK, Flag 256 = ZSK)
+    signed_lines.append(f'@ IN TXT "DNSKEY|257|{ksk_pub}"')
+    signed_lines.append(f'@ IN TXT "DNSKEY|256|{zsk_pub}"')
+
+    # 2. KSK strictly signs the keys
+    ksk_sig_ksk = sign_data(ksk_priv, f"{zone_name}|DNSKEY|257|{ksk_pub}")
+    ksk_sig_zsk = sign_data(ksk_priv, f"{zone_name}|DNSKEY|256|{zsk_pub}")
+    signed_lines.append(f'@ IN TXT "RRSIG|DNSKEY|257|{ksk_sig_ksk}"')
+    signed_lines.append(f'@ IN TXT "RRSIG|DNSKEY|256|{ksk_sig_zsk}"')
     signed_lines.append("")
 
-    # 3. Loop through original records and sign them
+    # --- NEW: Phase 3 - The Chain of Trust (DS Records) ---
+    if child_zones:
+        print(f"    -> Injecting and ZSK-signing DS records for delegated zones")
+        for child in child_zones:
+            # 3a. Grab the child's KSK Public Key and Hash it
+            child_ksk_pub = load_public_key_b64(child, "KSK")
+            ds_hash = hashlib.sha256(child_ksk_pub.encode('utf-8')).hexdigest()
+            
+            # 3b. Publish the DS record
+            signed_lines.append(f'{child} IN TXT "DS|{ds_hash}"')
+            
+            # 3c. The Parent's ZSK signs the Child's DS record!
+            ds_data_to_sign = f"{child}|DS|{ds_hash}"
+            ds_sig = sign_data(zsk_priv, ds_data_to_sign)
+            signed_lines.append(f'{child} IN TXT "RRSIG|DS|{ds_sig}"')
+            signed_lines.append("")
+    # ------------------------------------------------------
+
+    print(f"    -> ZSK-signing A, CNAME, and NS records")
+    # 4. ZSK strictly signs the data records
     for rr in records:
         name = str(rr.rname)
         rtype = QTYPE[rr.rtype]
         rdata = str(rr.rdata)
         
-        # Keep the original record exactly as it was
         signed_lines.append(rr.toZone().strip())
         
-        # We only sign A and CNAME records for this implementation
-        if rtype in ["A", "CNAME"]:
-            print(f"    -> Signing {rtype} record for {name}")
+        if rtype in ["A", "CNAME", "NS"]:
             data_to_sign = f"{name}|{rtype}|{rdata}"
-            signature = sign_data(priv_key, data_to_sign)
-            
-            # Attach the signature right beneath it
+            signature = sign_data(zsk_priv, data_to_sign)
             signed_lines.append(f'{name} IN TXT "RRSIG|{rtype}|{signature}"')
-            signed_lines.append("") # blank line for readability
+            signed_lines.append("")
 
-    print(f"[*] Saving signed zone to: {output_file}")
-    with open(output_file, "w") as f:
+    with open(output_path, "w") as f:
         f.write("\n".join(signed_lines))
-        
-    print("-" * 40)
-    print("[+] Zone signing complete!")
+    print(f"    [+] Saved to: {output_path}")
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    sign_zone()
+    project_root = Path(__file__).resolve().parent.parent
+    os.chdir(project_root)
+    
+    # Dynamically build the list!
+    zones_to_sign = discover_zones(project_root)
+    print("-" * 40)
+
+    for in_path, out_path, z_name, children in zones_to_sign:
+        try:
+            sign_zone(in_path, out_path, z_name, children)
+        except FileNotFoundError as e:
+            # If we haven't generated keys for a zone yet (like custom.), gracefully skip it
+            print(f"    [!] Skipping {z_name}: Keys not found in /keys/ directory.")
+        except Exception as e:
+            print(f"    [!] Failed to sign {z_name}: {e}")
+            
+    print("-" * 40)
+    print("[+] Zone signing process complete!")

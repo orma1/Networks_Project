@@ -1,0 +1,26 @@
+$ORIGIN .
+$TTL 86400
+
+@ IN TXT "DNSKEY|257|oMxkmVIzM52y/5FSUWHyziRUpAnD+PqtCAR2EUtSGc+DzPMQc280MyH4OBusD0FQC6ybnHRHPFPyyCWoOVQA/w=="
+@ IN TXT "DNSKEY|256|ey9Lj/6cQGQssnqu2hw6wixqAkWzApvse5yY4sqfK3jU0uqged8B4O8pJd8Zvec7SNptKHP8Pd+9Bhc2unAYYA=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCIQDa1St8/IP6PYKSiwhnY9wm/7ALqYKUgqlj6Met5rLe5gIgDqshsaY2C/Qk1Ovtx1VMaRXXytQQI7FTrLR6hduHzI8="
+@ IN TXT "RRSIG|DNSKEY|256|MEUCIQCzrOch8yzEcNPUbpIp2/WilAJ0i9CBW8Y9ZfBUZN5ZiwIgO0zv5lTFlhK5diS5UsKTRhSKyr8tGacQCTPTQxTbOC4="
+
+custom. IN TXT "DS|5204f53c4d157fa91d99a95a0591de4d436821532a24b2c1fd2300050edd9773"
+custom. IN TXT "RRSIG|DS|MEYCIQD03zVhLfN9V/CP6R56V4rrFGKe4cL2OHWKExZahrHMNwIhALmVGMbQBzlhXEyjm0ZFF1pAqcnpbBN/gZ1UmNyQJtkW"
+
+homelab. IN TXT "DS|0b4e7114a606d7eb606cfd26f49cda9f83d1cf14619fab4541f6c797eded940b"
+homelab. IN TXT "RRSIG|DS|MEYCIQCnuufBDvQgEx5GDCMeZpysBYnKV6k/vht7l+/VxUtQqgIhAIDIni5vTi4Wtc0HFkUM5/qHkCW89hJhrLpRc8Ypse/Q"
+
+.                       86400   IN      SOA     a.root-servers.net. admin.root. 2026022201 1800 900 604800 86400
+homelab.                86400   IN      NS      tld.homelab.
+homelab. IN TXT "RRSIG|NS|MEUCIE1q5bwDrbZgRiHhyORqAoVHco/K3sfoN/6YiE4l8PazAiEAqGcH9MPlzdlRXoW3yDHsyRVVAsKXR4zTT7JTEzFn6Y8="
+
+tld.homelab.            86400   IN      A       127.0.0.4
+tld.homelab. IN TXT "RRSIG|A|MEQCIDZoONpErWgFJTeNTHmVsupGrgrvWVqxjZ6WfK2lk/apAiAuJ67uqxXna1a//1Eo0amaMZxje3BeER97jsS97NCUAw=="
+
+custom.                 86400   IN      NS      tld.custom.
+custom. IN TXT "RRSIG|NS|MEUCIHWSo7TJZZHeNzP9qu+nB+z+4qaFntTPOJFxg+xEM1EZAiEAppglkMnvxc1dYIMmMoLOXhUa9YnrASbq7jmDLP7o79o="
+
+tld.custom.             86400   IN      A       127.0.0.9
+tld.custom. IN TXT "RRSIG|A|MEYCIQChouvAymXRGHLtjB5DzPhdzFvuuf6TKkWUpH4GTeg76gIhAL3qk5J6PoaGQo//o5uW0vu+rX334hsTrtQw5Tab668Z"

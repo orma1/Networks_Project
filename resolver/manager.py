@@ -1,7 +1,7 @@
 import time
 import signal
 import sys
-import os
+import argparse
 
 from config_loader import ConfigLoader
 from resolver import Resolver
@@ -11,14 +11,14 @@ class ResolverManager:
     Orchestrates the Resolver application lifecycle.
     Prevents multiple instances and manages all subsystem threads (DNS, API, etc.)
     """
-    def __init__(self, config_filename="resolver_config.yaml"):
+    def __init__(self, config_filename="resolver_config.yaml", dnssec_enabled=False):
         print("[*] Booting Resolver Manager...")
         
         # 1. Load Config Once
         self.config = ConfigLoader(config_filename)
         
         # 2. Inject Config into exactly ONE Resolver instance
-        self.resolver = Resolver(self.config)
+        self.resolver = Resolver(self.config, dnssec_enabled)
         
         # 3. Future Placeholder: self.api_server = APIServer(self.resolver)
         
@@ -68,6 +68,8 @@ def handle_sigint(sig, frame):
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, handle_sigint)
-    
-    app_manager = ResolverManager()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dnssec', action='store_true')
+    args = parser.parse_args()
+    app_manager = ResolverManager(dnssec_enabled=args.dnssec)
     app_manager.start_all()
