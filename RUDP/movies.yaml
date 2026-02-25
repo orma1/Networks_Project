@@ -1,0 +1,17 @@
+# רשימת הסרטים המורשים בשרת ה-Origin
+server_config:
+  origin_ip: "127.0.0.1"
+  origin_port: 9000
+  base_directory: "./videos" # התיקייה שבה נמצאים הקבצים הפיזיים
+  packet_loss_chance: 0.2
+
+movies:
+  - id: 1
+    name: "Rotating Earth"
+    file: "movie.mp4"
+  - id: 2
+    name: "Matrix Trailer"
+    file: "matrix.mp4"
+  - id: 3
+    name: "Test Video"
+    file: "test.mp4"
