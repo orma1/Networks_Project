@@ -3,6 +3,7 @@ import socket, os, sys, threading, yaml, random, logging, signal
 # טיפול בנתיבים
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, '..'))
+VIDEO_DIR = os.path.join(BASE_DIR, 'videos')
 sys.path.append(PARENT_DIR)
 
 from dhcp_helper import VirtualNetworkInterface
@@ -27,9 +28,12 @@ class OriginServer:
         
         # 3. פתיחת Socket האזנה
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.my_ip, self.port))
-        self.sock.settimeout(1.0)
-
+        try:
+            self.sock.bind((self.my_ip, self.port))
+            self.sock.settimeout(1.0)
+        except Exception as e:
+            print(f"Error binding socket: Make sure the DHCP server is running and assigned an IP.")
+            sys.exit(1)
     def shutdown(self, signum, frame):
         print("\n[*] Origin Server shutting down...")
         self.running = False
@@ -49,7 +53,7 @@ class OriginServer:
 
     def handle_request(self, filename, addr):
         # חיפוש הקובץ בתיקייה המקומית
-        file_path = os.path.join(BASE_DIR, filename)
+        file_path = os.path.join(VIDEO_DIR, filename)
         if not os.path.exists(file_path):
             print(f"[!] File {filename} not found")
             return
@@ -77,6 +81,9 @@ class OriginServer:
                             if ack_data.decode() == f"ACK|{seq}":
                                 acked = True
                         except socket.timeout: continue
+                        except ConnectionResetError:
+                            print(f"[!] Connection reset by {addr}")
+                            return
                     seq += 1
         finally:
             send_sock.close()

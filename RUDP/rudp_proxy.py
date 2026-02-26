@@ -83,7 +83,8 @@ if __name__ == "__main__":
     with open("movies.yaml", 'r' , encoding='utf-8') as f:
         conf = yaml.safe_load(f)
         MOVIES_LIST = conf['movies']
-        ORIGIN_ADDR = (conf['server_config']['origin_ip'], conf['server_config']['origin_port'])
+        # TODO: Get the origin server IP from DNS. For now, we assume it's in the config.
+        ORIGIN_ADDR = ("127.0.0.13", 9000)  # Hardcoded for testing
 
     print(f"[*] Proxy UI at http://{MY_IP}:5000")
     app.run(host='0.0.0.0', port=5000, threaded=True, use_reloader=False)

@@ -12,7 +12,7 @@ class VirtualNetworkInterface:
         else:
             self.unique_id = fixed_id
             self.client_id_opt = ("client_id", self.unique_id.encode())
-        print(f"[*] VirtualNetworkInterface initialized with ID: {self.unique_id}")
+        # print(f"[*] VirtualNetworkInterface initialized with ID: {self.unique_id}")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0)) 
         self.sock.settimeout(3)
@@ -32,7 +32,7 @@ class VirtualNetworkInterface:
             except: pass
 
     def setup_network(self):
-        print(f"[*] DHCP: {self.unique_id} searching for server on port 6700...")
+        # print(f"[*] DHCP: {self.unique_id} searching for server on port 6700...")
         try:
             xid = random.getrandbits(32)
             # D - Discover
