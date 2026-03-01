@@ -1,0 +1,20 @@
+{
+  "appId": "com.danielstet.dns-final-project",
+  "productName": "Electron Demo",
+  "files": ["dist-electron", "dist-react"],
+  "extraResources": ["dist-electron/preload.cts"],
+  "icon": "./src/ui/assets/react.svg",
+  "mac": {
+    "icon": "./src/ui/assets/react.icns",
+    "target": "dmg"
+  },
+  "linux": {
+    "icon": "./src/ui/assets/react.png",
+    "target": "AppImage",
+    "category": "Utility"
+  },
+  "win": {
+    "icon": "./src/ui/assets/react.ico",
+    "target": ["portable", "msi"]
+  }
+}

@@ -1,0 +1,84 @@
+/* sidebar.css */
+
+.sidebar-container {
+    width: 350px;
+    height: 100vh;
+    padding: 20px 24px;
+    /* Replaced #f9fafb with the surface variable! */
+    background-color: var(--bg-surface);
+    border-right: 1px solid var(--border-color);
+}
+
+.header {
+    font-size: var(--h4); /* Using your dynamic math scale */
+    color: var(--text-primary);
+}
+
+.tree-line {
+    border-left: 2px solid #e5e7eb; /* The actual vertical line */
+    margin-left: 8px;
+    padding-left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.server-name {
+    font-size: var(--h5);
+    font-weight: 500;
+    color: #374151;
+}
+
+.subtext-container {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    gap: 3px;
+    margin-left: 2px;
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border: 1px;
+    border-radius: 1rem;
+    margin-top: 3px;
+}
+
+.subtext {
+    font-size: var(--h6);
+    color: var(--text-muted);
+}
+
+.server-item {
+    display: flex;
+    flex-direction: column;
+    /*gap: 4px;*/
+    padding: 8px 12px;
+    margin-left: -12px; /* Offset the padding so it aligns with the line */
+    cursor: pointer; /* Change the mouse to a pointing hand */
+    transition: background-color 0.2s ease;
+}
+
+/* Add a hover effect */
+.server-item:hover {
+    background-color: rgba(0, 0, 0, 0.05); /* Subtle gray on hover */
+}
+
+/* Add the specific style for when it is actively selected */
+.server-item.active {
+    background-color: rgba(
+        0,
+        0,
+        0,
+        0.1
+    ); /* A darker, neutral shade of the gray bg */
+}
+
+/* Make the text slightly bolder when active */
+.server-item.active .server-name {
+    color: var(
+        --text-primary
+    ); /* Swapped this from green to standard text color too! */
+    font-weight: 700;
+}
