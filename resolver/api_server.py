@@ -31,8 +31,12 @@ class ZoneData(BaseModel):
     defaultTtl: int
     records: List[DnsRecord]
 
-# Configure your zone file directory
-ZONE_DIR = r"D:\Development\network_final\Networks_Project\zones"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if os.path.exists(os.path.join(CURRENT_DIR, "zones")):
+    ZONE_DIR = os.path.join(CURRENT_DIR, "zones")
+else:
+    ZONE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "zones"))
 
 # --- NEW: Smart File Finder ---
 def find_zone_file(server_name: str) -> str:
