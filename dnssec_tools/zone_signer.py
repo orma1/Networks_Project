@@ -58,10 +58,11 @@ def discover_zones(project_root):
                 records = RR.fromZone(f.read())
                 for rr in records:
                     if QTYPE[rr.rtype] == "NS":
-                        rname_str = str(rr.rname)
-                        # If the NS record points to a subdomain, it's a child delegation!
-                        if rname_str != zone_name:
-                            child_zones.add(rname_str)
+                        if QTYPE[rr.rtype] == "NS":
+                            owner = str(rr.rname)
+                        # Delegation only if NS owner is below the zone
+                        if owner.endswith(zone_name) and owner != zone_name:
+                            child_zones.add(owner)
         except Exception as e:
             print(f"[!] Error parsing {filename} for children: {e}")
             

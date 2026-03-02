@@ -1,17 +1,17 @@
 $ORIGIN custom.
 $TTL 86400
 
-@ IN TXT "DNSKEY|257|abiOsb3nW278czKZBoWsV+JNbBGKyQ+sLIBgfmrhY5I5gtZsFugC48RvrMdoqxmj3TDiTuhWAiztOJ6ZE5XVXA=="
-@ IN TXT "DNSKEY|256|KnER6Wtz8IbJfmBkaGtKIkb0+R1BFL3QiaUfzopZnidq+EwJkZUw6r1gFuMdCMjr/VerIhFzR4LcolF80ljkiw=="
-@ IN TXT "RRSIG|DNSKEY|257|MEUCIAOJ01MRneRNkFlO9i5V77ToR50dkZ3KWCI7iHYWuyZiAiEA8QthEOVJaXDUtlQ2sSZFQQ9xJQpjXBA+vawjTvkbL/k="
-@ IN TXT "RRSIG|DNSKEY|256|MEQCIB/oUMBQTo4CofoWr/fzLPDKeyEsi8YoHXaiJzPcey6BAiBkR7/fLc9vAbKIgXOzOqncburCKJCmhcmUcuqUaZQs8Q=="
+@ IN TXT "DNSKEY|257|y7D7DmyxcTaQFvAFJNPbRIJiANHOsnCSKRRcltwEqkLP9bupJUp8x8hNu/eJdBNNtB9RUVrM6ykrQyMiEffk1A=="
+@ IN TXT "DNSKEY|256|FS3ubve2ImhLTDNJiLgh7kZHD0cdjvqIOBqoSskmlVbA9blUGLIv6/q+kHLQWidIYWHXZzG9sW/Or+Dn+zDHDQ=="
+@ IN TXT "RRSIG|DNSKEY|257|MEYCIQCmsL2NXJ0w+xFMuYOjHktZKD/t+zYJA/E1tIVKedOGdQIhALE/s/C27ljp1ymvlP55Tx4/FGunDtAjUZ+WV+YnYhy2"
+@ IN TXT "RRSIG|DNSKEY|256|MEQCIBj9skUSZK3r0XKHp7N2dUha1AYF55oOg+7yidHgbg4cAiAfzVvYYflb9q8+sRsBuRsXk3clb+4Wtm+HXkyrJy+Sdw=="
 
-mywebsite.custom. IN TXT "DS|65a132f1d0de615f4b813b2215dbdf55d3e878efa89bc601aa8eaa84d44b8485"
-mywebsite.custom. IN TXT "RRSIG|DS|MEUCIQChLVFxftpQ8aHOaAsPl0gmPfHKCWMGrWFNsAd/4Uo3kgIgGd9iuoZytYF9ijrfd7S/pzdtLWVduXBS0M7bJaytYaY="
+mywebsite.custom. IN TXT "DS|31c754ad6049bf0c32c98d4101c2b3fbc6220542b62c9b6fbca1f4eac83c8c5a"
+mywebsite.custom. IN TXT "RRSIG|DS|MEQCIH557i2esTAuxpkezFP2d16Gj7EyIpjtnLBrTzNL+gbpAiAZoOMgY2pmormYlbrMwQh+z25pwwLiC1kmOeN4KeCDkQ=="
 
 custom.                 86400   IN      SOA     tld.custom. admin.custom. 2026022201 1800 900 604800 86400
 mywebsite.custom.       86400   IN      NS      ns1.mywebsite.custom.
-mywebsite.custom. IN TXT "RRSIG|NS|MEUCID71sAeHcfZ2JxyzK4zYsWQOwdo9Yc0bNDbDFAu8OZbLAiEA3WJPqNr9TOyT/KoxlfyuTR1SIw3HWD9JD/KBSBV5CDc="
+mywebsite.custom. IN TXT "RRSIG|NS|MEYCIQDpFiCuWWRM6+wGjWD0J03DNUuk76D+MTGRH1qPEu2MewIhAIe8uqVuQMVgVnZa2ibOQ4WrYga3bmGDQMosRNsS+i4r"
 
 ns1.mywebsite.custom.   86400   IN      A       127.0.0.11
-ns1.mywebsite.custom. IN TXT "RRSIG|A|MEQCIAtOitn3su9qU5ENBynYnLCW5PA57RM6sjkWQZtublmIAiBo0qROr3gLU2igTna3DG23yrQbiub7nOyfVABYf5+xoQ=="
+ns1.mywebsite.custom. IN TXT "RRSIG|A|MEQCIHiFAo13ab8gQZ1RuCIXV8WpLok6KeolaHdfF0O3TtoFAiBZCT+oJC8tMMIZHE55YRWVO5+v2N41+Mhddqrlzrj2Eg=="

@@ -54,6 +54,34 @@ def find_zone_file(server_name: str) -> str:
             
     return None
 
+# --- 4. API Server Class ---
+resolver_ref = None
+
+class APIServer:
+    def __init__(self, resolver, host="127.0.0.1", port=8000):
+        global resolver_ref
+        resolver_ref = resolver
+        self.host = host
+        self.port = port
+        self.thread = None
+
+    def start(self):
+        print(f"[*] API Server booting on http://{self.host}:{self.port}")
+        self.thread = threading.Thread(
+            target=uvicorn.run, 
+            args=(app,), 
+            kwargs={"host": self.host, "port": self.port, "log_level": "critical"}
+        )
+        self.thread.daemon = True
+        self.thread.start()
+        
+    def stop(self):
+        print("[*] API Server shutting down...")
+
+class ARecordUpdate(BaseModel):
+    name: str
+    ip: str
+    ttl: Optional[int] = None
 # --- 2. GET Endpoint ---
 @app.get("/api/zone/{server_name}", response_model=ZoneData)
 async def get_zone(server_name: str):
@@ -159,26 +187,55 @@ async def list_zone_files(tier: str):
             
     return zones
 
-# --- 4. API Server Class ---
-resolver_ref = None
+# --- 5. GET Specific A Records ---
+@app.get("/api/zone/{server_name}/records/a")
+async def get_a_records(server_name: str):
+    # Call your existing get_zone function to parse the file
+    zone_data = await get_zone(server_name)
+    
+    # Filter and return ONLY the A records
+    a_records = [rec for rec in zone_data["records"] if rec["type"] == "A"]
+    
+    return {"server_name": server_name, "a_records": a_records}
 
-class APIServer:
-    def __init__(self, resolver, host="127.0.0.1", port=8000):
-        global resolver_ref
-        resolver_ref = resolver
-        self.host = host
-        self.port = port
-        self.thread = None
-
-    def start(self):
-        print(f"[*] API Server booting on http://{self.host}:{self.port}")
-        self.thread = threading.Thread(
-            target=uvicorn.run, 
-            args=(app,), 
-            kwargs={"host": self.host, "port": self.port, "log_level": "critical"}
-        )
-        self.thread.daemon = True
-        self.thread.start()
+# --- 6. POST/Update Specific A Record ---
+@app.post("/api/zone/{server_name}/records/a")
+async def update_a_record(server_name: str, payload: ARecordUpdate):
+    # 1. Fetch the current zone state using your existing parser
+    zone_data = await get_zone(server_name)
+    
+    record_found = False
+    
+    # 2. Scan for the specific A record and update its IP
+    for rec in zone_data["records"]:
+        if rec["type"] == "A" and rec["name"] == payload.name:
+            rec["data"] = payload.ip
+            if payload.ttl is not None:
+                rec["ttl"] = payload.ttl
+            record_found = True
+            break
+            
+    # 3. If it doesn't exist, create and append a brand new one
+    if not record_found:
+        # Find the highest existing ID to increment from safely
+        existing_ids = [int(r["id"]) for r in zone_data["records"] if r["id"].isdigit()]
+        next_id = str(max(existing_ids) + 1) if existing_ids else "1"
         
-    def stop(self):
-        print("[*] API Server shutting down...")
+        new_record = {
+            "id": next_id,
+            "name": payload.name,
+            "class": "IN", 
+            "type": "A",
+            "ttl": payload.ttl,
+            "data": payload.ip
+        }
+        zone_data["records"].append(new_record)
+        
+    # 4. Convert the dictionary back into your strict Pydantic ZoneData model
+    zone_payload = ZoneData(**zone_data)
+    
+    # 5. Call your existing save_zone function to format, write, and reload BIND!
+    await save_zone(server_name, zone_payload)
+    
+    action = "Updated" if record_found else "Created"
+    return {"success": True, "message": f"A record '{payload.name}' {action} successfully with IP {payload.ip}."}

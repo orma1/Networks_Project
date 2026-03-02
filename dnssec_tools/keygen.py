@@ -42,6 +42,7 @@ def generate_key_pair(zone_name, key_type, output_dir="keys"):
     print(f"    [+] Saved Private: {priv_file}")
     print(f"    [+] Saved Public:  {pub_file}")
 
+
 def generate_zone_keys(zone_name, output_dir="keys"):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -53,12 +54,34 @@ def generate_zone_keys(zone_name, output_dir="keys"):
 
 if __name__ == "__main__":
     # Ensure we run from the project root
-    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(project_root)
     
-    # Generate KSK/ZSK pairs for our 3 authoritative zones
-    generate_zone_keys(".")
-    generate_zone_keys("homelab.")
-    generate_zone_keys("custom.")
-    generate_zone_keys("test.homelab.")
-    generate_zone_keys("mywebsite.custom.")
-    # We no longer need 'auth.test.homelab.' as the zone is just 'test.homelab.'
+    zones_dir = os.path.join(project_root, "zones")
+    print(f"[*] Scanning {zones_dir} for zone files...")
+    
+    zones_found = []
+    
+    # Dynamically find all .zone files (ignoring .signed.zone)
+    for root_dir, dirs, files in os.walk(zones_dir):
+        for file in files:
+            if file.endswith(".zone") and not file.endswith(".signed.zone"):
+                base_name = file.replace(".zone", "")
+                
+                # Special DNS mapping: root.zone translates to the "." zone
+                if base_name == "root":
+                    zone_name = "."
+                else:
+                    zone_name = f"{base_name}."
+                    
+                if zone_name not in zones_found:
+                    zones_found.append(zone_name)
+                    
+    print(f"[*] Found {len(zones_found)} zones requiring keys: {zones_found}")
+    print("-" * 40)
+    
+    # Generate keys for every zone discovered
+    for zone in zones_found:
+        generate_zone_keys(zone)
+        
+    print("[*] Dynamic key generation complete!")
