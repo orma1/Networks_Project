@@ -1,6 +1,6 @@
 dhcp_server:
   loopback: true
-  lease_time: 60  # Seconds. Client will renew at half of this time.
+  lease_time: 360  # Seconds. Client will renew at half of this time.
   persistence_file: "leases.json"
   subnet_mask: "255.255.255.0"
   gateway: "192.168.1.1"
@@ -26,7 +26,6 @@ dhcp_server:
     "108": "127.0.0.9"
     "109": "127.0.0.10"
     "110": "127.0.0.11"
-    "OriginServerTCP": "127.0.0.12"
     "OriginServer": "127.0.0.13"
     "113": "127.0.0.14"
     "114": "127.0.0.15"
