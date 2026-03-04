@@ -236,34 +236,48 @@ async def get_a_records(server_name: str, zone_name: str):
     a_records = [rec for rec in zone_data["records"] if rec["type"] == "A"]
     return {"server_name": server_name, "zone_name": zone_name, "a_records": a_records}
 
-
-@app.post("/api/zone/{server_name}/{zone_name}/records/a")
-async def update_a_record(server_name: str, zone_name: str, payload: ARecordUpdate):
+@app.post("/api/zone/{server_name}/{zone_name}/records/a/{record_id}")
+async def update_a_record(
+    server_name: str, 
+    zone_name: str, 
+    record_id: str, # 2. Added it to the function arguments!
+    payload: ARecordUpdate
+):
     zone_data = await get_zone(server_name, zone_name)
     record_found = False
     
     for rec in zone_data["records"]:
-        if rec["type"] == "A" and rec["name"] == payload.name:
+        # 3. We check against `record_id` from the URL, NOT `payload.id`
+        if rec["type"] == "A" and rec["id"] == record_id:
+            # Update the existing record's fields
+            rec["name"] = payload.name 
             rec["data"] = payload.ip
-            if payload.ttl is not None: rec["ttl"] = payload.ttl
+            if payload.ttl is not None: 
+                rec["ttl"] = payload.ttl
             record_found = True
             break
             
     if not record_found:
+        # If the record ID wasn't found, generate a new one and append it
         existing_ids = [int(r["id"]) for r in zone_data["records"] if r["id"].isdigit()]
         next_id = str(max(existing_ids) + 1) if existing_ids else "1"
         new_record = {
-            "id": next_id, "name": payload.name, "class": "IN", 
-            "type": "A", "ttl": payload.ttl, "data": payload.ip
+            "id": next_id, 
+            "name": payload.name, 
+            "class": "IN", 
+            "type": "A", 
+            "ttl": payload.ttl, 
+            "data": payload.ip
         }
         zone_data["records"].append(new_record)
         
     zone_payload = ZoneData(**zone_data)
+    
+    # Save it back to disk
     await save_zone(server_name, zone_name, zone_payload)
     
     action = "Updated" if record_found else "Created"
     return {"success": True, "message": f"A record '{payload.name}' {action} successfully with IP {payload.ip}."}
-
 # ==========================================
 # 5. SERVER RUNNER
 # ==========================================
