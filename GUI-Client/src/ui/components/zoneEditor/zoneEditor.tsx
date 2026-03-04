@@ -1,16 +1,23 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import ZoneSelection from "./ZoneSelection/ZoneSelection";
+import ZoneTable from "./ZoneTable/ZoneTable";
+import ZoneFunctions from "./ZoneFunctions/ZoneFunctions";
+import ConfirmModal from "./ConfirmModal/ConfirmModal";
+
 import "./ZoneEditor.css";
 
 interface ZoneEditorProps {
-  serverName: string;
+  nameServer: string;
 }
 
-export default function ZoneEditor({ serverName }: ZoneEditorProps) {
-  // --- New States for Folder/Multiple Files ---
+export default function ZoneEditor({ nameServer }: ZoneEditorProps) {
   const [availableZones, setAvailableZones] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<string>("");
+
+  const [isCreating, setIsCreating] = useState(false);
+  const [newZoneName, setNewZoneName] = useState("");
 
   const [origin, setOrigin] = useState("");
   const [defaultTtl, setDefaultTtl] = useState(86400);
@@ -21,118 +28,174 @@ export default function ZoneEditor({ serverName }: ZoneEditorProps) {
     "idle" | "saving" | "saved" | "error"
   >("idle");
 
-  // --- 1. Fetch the LIST of zones for the selected tier ---
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // 1. Fetch File List
   useEffect(() => {
-    if (serverName === "API" || serverName === "Resolver") {
-      return;
-    }
+    if (nameServer === "API" || nameServer === "Resolver") return;
+
+    let isCurrent = true; // Safety flag!
+
+    // Instantly wipe the UI when the tab changes so old data doesn't bleed over
+    setAvailableZones([]);
+    setSelectedZone("");
+    setRecords([]);
 
     const loadFileList = async () => {
-      // Fetch list of files (e.g., ["mywebsite.custom", "test.homelab"])
-      const list = await window.electron.fetchZoneList(serverName);
-      setAvailableZones(list);
+      const list = await window.electron.fetchZoneList(nameServer);
 
-      // Auto-select the first zone in the folder if it exists
+      if (!isCurrent) return; // If they clicked another tab while this was loading, ABORT!
+
+      setAvailableZones(list);
       if (list.length > 0) {
         setSelectedZone(list[0]);
       } else {
         setSelectedZone("");
-        setRecords([]); // Clear table if folder is empty
+        setRecords([]);
       }
     };
-
     loadFileList();
-  }, [serverName]);
 
-  // --- 2. Fetch the actual DATA when a zone is selected ---
+    // Cleanup function: runs the millisecond the nameServer (tab) changes
+    return () => {
+      isCurrent = false;
+    };
+  }, [nameServer]);
+
+  // 2. Fetch Zone Data
   useEffect(() => {
     if (!selectedZone) return;
 
+    let isCurrent = true; // Safety flag!
+
     const loadData = async () => {
       setIsLoading(true);
-      setOrigin("");
-      setDefaultTtl(86400);
-      setRecords([]);
+      const data = await window.electron.fetchZoneData(
+        nameServer,
+        selectedZone,
+      );
 
-      // Fetch using the specific filename selected in the dropdown
-      const data = await window.electron.fetchZoneData(selectedZone);
+      if (!isCurrent) return; // If they switched tabs during the fetch, ABORT!
 
       if (data) {
         setOrigin(data.origin);
         setDefaultTtl(data.defaultTtl);
         setRecords(data.records);
+      } else {
+        // If FastAPI returns null (or 404), ensure the table clears
+        setRecords([]);
       }
-
       setIsLoading(false);
     };
-
     loadData();
-  }, [selectedZone]);
 
-  const handleAddRecord = () => {
-    const newRecord: DnsRecord = {
-      id: crypto.randomUUID(),
-      name: "",
-      class: "IN",
-      type: "A",
-      ttl: undefined,
-      data: "",
+    // Cleanup function
+    return () => {
+      isCurrent = false;
     };
-    setRecords((prev) => [...prev, newRecord]);
-  };
+  }, [nameServer, selectedZone]);
 
-  const handleUpdateRecord = <K extends keyof DnsRecord>(
-    id: string,
-    field: K,
-    value: DnsRecord[K],
-  ) => {
-    setRecords((prev) =>
-      prev.map((record) =>
-        record.id === id ? { ...record, [field]: value } : record,
-      ),
-    );
-  };
-
-  const handleDeleteRecord = (id: string) => {
-    setRecords((prev) => prev.filter((record) => record.id !== id));
-  };
-
-  const handleSave = async () => {
-    setSaveStatus("saving");
+  // 3. Create New Zone
+  const handleCreateNewZone = async () => {
+    if (!newZoneName.trim()) return;
+    const cleanName = newZoneName.trim().replace(/\.$/, "");
 
     try {
-      const payload: ZoneData = {
-        origin,
-        defaultTtl,
-        records: records.map((record) => ({ ...record })),
-      };
-
-      // Save using the specific filename, NOT the serverName folder
-      const result = await window.electron.saveZoneData(selectedZone, payload);
+      setSaveStatus("saving");
+      // Use the newly added backend IPC route!
+      const result = await window.electron.createNewZone(nameServer, cleanName);
 
       if (result.success) {
+        setAvailableZones((prev) => [...prev, cleanName]);
+        setSelectedZone(cleanName);
+        setIsCreating(false);
+        setNewZoneName("");
         setSaveStatus("saved");
       } else {
-        console.error(`Error saving: ${result.error}`);
+        console.error("Creation failed:", result.error);
         setSaveStatus("error");
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Unexpected Error: ${error.message}`);
-      } else {
-        console.error("Unexpected Error:", error);
-      }
-
-      setSaveStatus("error");
+    } catch (e) {
+      if (e instanceof Error) setSaveStatus("error");
     } finally {
       setTimeout(() => setSaveStatus("idle"), 2500);
     }
   };
 
-  if (serverName === "API" || serverName === "Resolver") {
+  const handleDeleteZone = async (zoneName: string) => {
+    try {
+      const result = await window.electron.deleteZone(nameServer, zoneName);
+
+      if (result.success) {
+        // 1. Filter the deleted zone out of our local state array
+        const updatedZones = availableZones.filter((zone) => zone !== zoneName);
+        setAvailableZones(updatedZones);
+
+        // 2. Decide what to show the user next
+        if (updatedZones.length > 0) {
+          // Auto-select the first remaining zone.
+          setSelectedZone(updatedZones[0]);
+        } else {
+          // If they deleted the very last file in the folder, clear the board completely
+          setSelectedZone("");
+          setRecords([]);
+          setOrigin("");
+          setDefaultTtl(86400);
+        }
+      } else {
+        console.error("Deletion failed:", result.error);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error("Unexpected Error occurred (handleDeleteZone):", error);
+      }
+    }
+  };
+  const handleAddRecord = () => {
+    setRecords((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name: "",
+        class: "IN",
+        type: "A",
+        ttl: undefined,
+        data: "",
+      },
+    ]);
+  };
+
+  const handleUpdateRecord: UpdateRecordFn = (id, field, value) => {
+    setRecords((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)),
+    );
+  };
+
+  const handleDeleteRecord = (id: string) => {
+    setRecords((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleSave = async () => {
+    setSaveStatus("saving");
+    try {
+      const payload: ZoneData = { origin, defaultTtl, records };
+      const result = await window.electron.saveZoneData(
+        nameServer,
+        selectedZone,
+        payload,
+      );
+      setSaveStatus(result.success ? "saved" : "error");
+    } catch (error) {
+      if (error instanceof Error) setSaveStatus("error");
+    } finally {
+      setTimeout(() => setSaveStatus("idle"), 2500);
+    }
+  };
+
+  if (nameServer === "API" || nameServer === "Resolver") {
     return (
       <div className="zone-empty-state">
-        <h2>{serverName}</h2>
+        <h2>{nameServer}</h2>
         <p>This component does not manage a static zone file.</p>
       </div>
     );
@@ -140,166 +203,52 @@ export default function ZoneEditor({ serverName }: ZoneEditorProps) {
 
   return (
     <div className="zone-editor-container">
-      <div className="zone-header">
-        <h2>{serverName} Zone Configuration</h2>
-        <p>
-          Select Zone: &nbsp;
-          {availableZones.length > 0 && (
-            <select
-              value={selectedZone}
-              onChange={(e) => setSelectedZone(e.target.value)}
-              className="zone-list"
-            >
-              {availableZones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}.zone
-                </option>
-              ))}
-            </select>
-          )}
-        </p>
-      </div>
+      <ZoneSelection
+        serverName={nameServer}
+        availableZones={availableZones}
+        selectedZone={selectedZone}
+        origin={origin}
+        defaultTtl={defaultTtl}
+        isCreating={isCreating}
+        newZoneName={newZoneName}
+        onSelectZone={setSelectedZone}
+        onChangeOrigin={setOrigin}
+        onChangeTtl={setDefaultTtl}
+        onSetIsCreating={setIsCreating}
+        onSetNewZoneName={setNewZoneName}
+        onCreateZone={handleCreateNewZone}
+        onDeleteZone={() => setIsDeleteModalOpen(true)}
+      />
 
       {isLoading ? (
         <p>Loading zone data from backend...</p>
-      ) : availableZones.length === 0 ? (
-        <p>No zone files found in this directory.</p>
-      ) : (
+      ) : availableZones.length === 0 && !isCreating ? (
+        <p>No zone files found. Click "+ New Zone" to create one.</p>
+      ) : !isCreating ? (
         <>
-          <div className="zone-globals">
-            <div className="input-group">
-              <label>$ORIGIN</label>
-              <input
-                type="text"
-                value={origin}
-                onChange={(e) => setOrigin(e.target.value)}
-                placeholder="e.g. mywebsite.custom."
-              />
-            </div>
-            <div className="input-group">
-              <label>$TTL</label>
-              <input
-                type="number"
-                value={defaultTtl}
-                onChange={(e) => setDefaultTtl(parseInt(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-
-          <div className="table-container">
-            <table className="zone-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Class</th>
-                  <th>Type</th>
-                  <th>TTL (Opt)</th>
-                  <th>Target / Data</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((record) => (
-                  <tr key={record.id}>
-                    <td>
-                      <input
-                        type="text"
-                        value={record.name}
-                        onChange={(e) =>
-                          handleUpdateRecord(record.id, "name", e.target.value)
-                        }
-                      />
-                    </td>
-                    <td>
-                      <select
-                        value={record.class}
-                        onChange={(e) =>
-                          handleUpdateRecord(record.id, "class", e.target.value)
-                        }
-                      >
-                        <option value="IN">IN</option>
-                        <option value="CH">CH</option>
-                        <option value="HS">HS</option>
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        value={record.type}
-                        onChange={(e) =>
-                          handleUpdateRecord(record.id, "type", e.target.value)
-                        }
-                      >
-                        <option value="SOA">SOA</option>
-                        <option value="NS">NS</option>
-                        <option value="A">A</option>
-                        <option value="CNAME">CNAME</option>
-                        <option value="TXT">TXT</option>
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        value={record.ttl || ""}
-                        onChange={(e) => {
-                          const val = e.target.value
-                            ? parseInt(e.target.value)
-                            : undefined;
-                          handleUpdateRecord(record.id, "ttl", val);
-                        }}
-                        placeholder="Default"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={record.data}
-                        onChange={(e) =>
-                          handleUpdateRecord(record.id, "data", e.target.value)
-                        }
-                      />
-                    </td>
-                    <td>
-                      <button
-                        className="btn-delete"
-                        onClick={() => handleDeleteRecord(record.id)}
-                      >
-                        Delete Record
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="zone-func">
-            <button className="btn-add" onClick={handleAddRecord}>
-              + Add Record
-            </button>
-
-            {/* The Smart Save Button */}
-            <button
-              className="btn-save"
-              onClick={handleSave}
-              disabled={isLoading || saveStatus !== "idle"}
-              style={{
-                backgroundColor:
-                  saveStatus === "saved"
-                    ? "#c7f9cc"
-                    : saveStatus === "error"
-                      ? "var(--status-off)"
-                      : undefined,
-                color: saveStatus === "saved" ? "#000" : undefined, // Ensure text is readable on light green
-                transition: "background-color 0.3s ease",
-              }}
-            >
-              {saveStatus === "idle" && "Save Changes"}
-              {saveStatus === "saving" && "Saving..."}
-              {saveStatus === "saved" && "Saved!"}
-              {saveStatus === "error" && "Error"}
-            </button>
-          </div>
+          <ZoneTable
+            records={records}
+            onUpdateRecord={handleUpdateRecord}
+            onDeleteRecord={handleDeleteRecord}
+          />
+          <ZoneFunctions
+            isLoading={isLoading}
+            saveStatus={saveStatus}
+            onAddRecord={handleAddRecord}
+            onSave={handleSave}
+          />
+          <ConfirmModal
+            isOpen={isDeleteModalOpen}
+            title="Confirm Deletion"
+            message={`Are you absolutely sure you want to delete ${selectedZone}.zone? This cannot be undone.`}
+            onConfirm={() => {
+              setIsDeleteModalOpen(false); // Close the modal
+              handleDeleteZone(selectedZone); // Execute the actual delete
+            }}
+            onCancel={() => setIsDeleteModalOpen(false)}
+          />
         </>
-      )}
+      ) : null}
     </div>
   );
 }
