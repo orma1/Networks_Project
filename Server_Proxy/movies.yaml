@@ -1,7 +1,9 @@
-# רשימת הסרטים המורשים בשרת ה-Origin
+# Server configuration and movie list in YAML format
 server_config:
-  origin_ip: "127.0.0.1"
   origin_port: 9000
+  packet_loss_chance: 0.05  # Fake packet loss
+  keep_alive_interval: 5    # Seconds
+  origin_ip: "127.0.0.1"
   base_directory: "./videos" # התיקייה שבה נמצאים הקבצים הפיזיים
   packet_loss_chance: 0.2
 
