@@ -2,4 +2,4 @@ Zone: custom.
 Type: KSK
 Flag: 257
 DNSKEY Base64:
-abiOsb3nW278czKZBoWsV+JNbBGKyQ+sLIBgfmrhY5I5gtZsFugC48RvrMdoqxmj3TDiTuhWAiztOJ6ZE5XVXA==
+y7D7DmyxcTaQFvAFJNPbRIJiANHOsnCSKRRcltwEqkLP9bupJUp8x8hNu/eJdBNNtB9RUVrM6ykrQyMiEffk1A==

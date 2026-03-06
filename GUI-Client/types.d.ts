@@ -31,30 +31,40 @@ type UnsubscribeFunction = () => void;
 
 interface Window {
   electron: {
-    subscribeEvent: (
-      channel: string,
-      callback: (data: Data) => void,
-    ) => UnsubscribeFunction;
+    subscribeEvent: (channel: string, callback: (data: Data) => void) => void;
     getData: () => Promise<StaticData>;
-    subscribeChangeView: (
-      callback: (view: View) => void,
-    ) => UnsubscribeFunction;
-    sendFrameAction: (payload: FrameWindowAction) => void;
-    fetchZoneData: (serverName: string) => Promise<ZoneData | null>;
+    // subscribeChangeView: (callback: (view: View) => void) => void;
+    // sendFrameAction: (payload: FrameWindowAction) => void;
+    fetchZoneData: (
+      serverName: string,
+      zoneName: string,
+    ) => Promise<ZoneData | null>;
     saveZoneData: (
       serverName: string,
+      zoneName: string,
       zoneData: ZoneData,
+    ) => Promise<{ success: boolean; error?: string }>;
+    fetchZoneList: (tier: string) => Promise<string[]>;
+    createNewZone: (
+      nameServer: string,
+      zoneName: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    deleteZone: (
+      nameServer: string,
+      zoneName: string,
     ) => Promise<{ success: boolean; error?: string }>;
   };
 }
 
-// ------
-//
 type StatusPayload = Record<string, { state: "On" | "Off"; ip: string }>;
 
 type LegalPayloads = StatusPayload | DnsRecord | ZoneData | null;
 
 type fetchZoneList = (tier: string) => Promise<string[]>;
+
+type createNewZone = (
+  zoneName: string,
+) => Promise<{ success: boolean; error?: string }>;
 
 type DnsRecord = {
   id: string; // Unique ID for React rendering (stripped before saving)
@@ -71,3 +81,9 @@ type ZoneData = {
   defaultTtl: number; // e.g., 86400
   records: DnsRecord[];
 };
+
+type UpdateRecordFn = <K extends keyof DnsRecord>(
+  id: string,
+  field: K,
+  value: DnsRecord[K],
+) => void;

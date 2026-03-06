@@ -1,17 +1,26 @@
 $ORIGIN homelab.
 $TTL 86400
 
-@ IN TXT "DNSKEY|257|DuClTJcuMMg0BxztIf4YMSStTZd52o5r7nNOxf0WlFFaCF4IgKpnBLhCTOrzh+8bw44ATHNxjpEygNzXADb+/A=="
-@ IN TXT "DNSKEY|256|SaIhr1n2IU8LwxMQoGOHCUoz7X8dEfZ+Ru0InMs10FIMmS5pk0YUKbYvCpCRGbXRTB1vBSdUN0yivLbGroGC9Q=="
-@ IN TXT "RRSIG|DNSKEY|257|MEYCIQDt+DtP7l1zQ/D1migeYOcLO0Beyo67r4uybsouMpfZUAIhAOXYEzLZFKwx6X1EfsTGoKIBcDkttSbVRBAFYz/+MEfE"
-@ IN TXT "RRSIG|DNSKEY|256|MEUCIQChFjSflot1w9ETSxVgET8XkaL2AAAnXVhL94vKnXySxAIgW0+QUmsvn3RuRXVNcwjj99ae55JeOrSErTHUWVFEyfM="
+@ IN TXT "DNSKEY|257|vYA33rZQh94L4joFSteswhqzTuPp+MgjYEaspGi6vnDVM8ROJqQ19uuIm0kR7BvPSxHQR0FXSPa2/yplJgzOJA=="
+@ IN TXT "DNSKEY|256|YzJorFIlQz454AC7FDgLMyHZ9CoOIBzVKwfjaoP3h0h+5Ew9gHGk6XK3u4Hg+78eQJONfBYV1hfWn1092bBicg=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCIA1he1EaoIHINEwkefm0E3RvusQvl7xnmfj5j4N8f2QrAiEA1YVnwR9m9KPjf0NRL6hxgjXxnSQTB0VbXq+yqCmuCf8="
+@ IN TXT "RRSIG|DNSKEY|256|MEUCIQCoayeYvSUmNQVuxsNF9iFheDL3OxORwI4MuT1A2FjEswIgWi0C4hwLpTLZjIj+Sc33v6hcQd8CL07tqOuYrFnv0vA="
 
-test.homelab. IN TXT "DS|c731d6b0b11ddf0499ef3934dd9faaf080d2c77332e182459aec642993b687a9"
-test.homelab. IN TXT "RRSIG|DS|MEUCIQDYIbcxzwTiYyhcHXdp+Q9nMOKHcp6kJMqn3a9VoQHb3AIgQoiXlHP3yGU53AQ3IcX0Y/dVjSruOV8NdxcZ16FoJs4="
+test.homelab. IN TXT "DS|4f6f92c979f979393e4554ad2f53f4763abf271c7fbeafc0659e8727de93529e"
+test.homelab. IN TXT "RRSIG|DS|MEUCIDm1uiNVoMTWm45jjh0he+Mv+kw/P1YlZqQIyEyRaQDvAiEAmidKBLr4fF2SyO7kLbgio11bfsjY2oUu1UZ0jNSphA0="
+
+myproxy.homelab. IN TXT "DS|cd4efc1da87392e07340b467f1fe26c97a6fa1324181e7f8075e3e2705d49785"
+myproxy.homelab. IN TXT "RRSIG|DS|MEQCICffifdpMCKacAu/TZyciyeqIv+/ET3a9Go2jsROkb/bAiB6LD/fhae7oUt+bvyfU3OmDqcUKiR9hE3rT54CEA5JQw=="
 
 homelab.                86400   IN      SOA     tld.homelab. admin.homelab. 2026022201 1800 900 604800 86400
 test.homelab.           86400   IN      NS      ns1.test.homelab.
-test.homelab. IN TXT "RRSIG|NS|MEUCIQDS8ukc03hmg4zhUbLv4yxlWZwIYacttzv+Lpx+LKDWvwIgeqFhyJwDs/WH/qveYf+R/Rv3Xm5Pv6rtdAwWUq79FV4="
+test.homelab. IN TXT "RRSIG|NS|MEYCIQDeuRnP6esPpVvXd0GKgivrVhLQoSznHV/dbeU5QjI3jgIhAPTC5euAka9C08xclOKCZSzcMxtefD6tyY5wrXt7YepV"
 
 ns1.test.homelab.       86400   IN      A       127.0.0.5
-ns1.test.homelab. IN TXT "RRSIG|A|MEUCID5NWjxoSrmMxyZV8S1wmTT7coauOdVKvCoUTXHruAIRAiEA2ceem9W+c0dek/vawb7VxQuIL2/M+Hs1jE+7916MmLA="
+ns1.test.homelab. IN TXT "RRSIG|A|MEUCIQCwkUqeJx+GSUnIpQBmfxWNO+KUgufWWWhnP7cEOH/+ngIgK/iovZhPFF5Aq0HM4qfaSRjVQVgfhObojL6kzs/IQLo="
+
+myproxy.homelab.        86400   IN      NS      ns1.myproxy.homelab.
+myproxy.homelab. IN TXT "RRSIG|NS|MEQCIEyrAf7dwQkj+HTy+8nNYeAZC/XhVNN5aGn9n1aAesY7AiB7yFtoTmdTh9K8KvV0WjJNAJB4RJ+ClwoViWWLIG2ZSw=="
+
+ns1.myproxy.homelab.    86400   IN      A       127.0.0.11
+ns1.myproxy.homelab. IN TXT "RRSIG|A|MEYCIQD16zKo0xKpWaj/8R4b3O4RvaRI+yozKlvIymG4H0mnsQIhAKlONQPjPLsNDZSLHoraHzEUokc/mVHc9XvVbgqhE8qG"

@@ -26,6 +26,8 @@ export interface YamlFileWrapper {
   };
 }
 
+let cachedConfig: InfrastructureConfig | null = null;
+
 // Helper to safely load and parse a YAML file
 function loadYamlConfig<T>(filePath: string): T | null {
   try {
@@ -37,7 +39,14 @@ function loadYamlConfig<T>(filePath: string): T | null {
   }
 }
 
-export function getInfrastructureConfig(): InfrastructureConfig {
+export function getInfrastructureConfig(
+  forceRefresh = false,
+): InfrastructureConfig {
+  // 1. If we already parsed the config, return it instantly from memory!
+  if (cachedConfig && !forceRefresh) {
+    return cachedConfig;
+  }
+
   const projectRoot = path.join(process.cwd(), "..");
   const configDir = path.join(projectRoot, "configs");
 
@@ -55,8 +64,7 @@ export function getInfrastructureConfig(): InfrastructureConfig {
   const authConfigPath = path.join(configDir, "auth_config.yaml");
   const resolverConfigPath = path.join(configDir, "resolver_config.yaml");
 
-  // 3. Override defaults with real data
-  // Notice we cast to <YamlFileWrapper> and use optional chaining (?.)
+  // Override defaults with real data
   const parsedRoot = loadYamlConfig<YamlFileWrapper>(rootConfigPath);
   if (parsedRoot?.server?.bind_ip) {
     config.Root.bind_ip = parsedRoot.server.bind_ip;
@@ -81,5 +89,7 @@ export function getInfrastructureConfig(): InfrastructureConfig {
     config.Resolver.bind_port = parsedResolver.server.bind_port || 53;
   }
 
+  // 2. Save the final parsed data to our global cache before returning
+  cachedConfig = config;
   return config;
 }

@@ -1,23 +1,26 @@
 $ORIGIN mywebsite.custom.
 $TTL 86400
 
-@ IN TXT "DNSKEY|257|7eda91DMfukU4YDEYFxT7oE8XraVAK5ucIzjSzDJ+0SBuzsHNH5ErufSk1QAFxgWYbNQHAMdsr3HOpBcGiPkoQ=="
-@ IN TXT "DNSKEY|256|Rg523wGvE60hfIcb5jN5Fne7LbWKdC2QK+2kYFoTTpnnrXYIWUqzNoxeb7fAQbEVS8t4jRT+rmVJ2XLltpcv+A=="
-@ IN TXT "RRSIG|DNSKEY|257|MEYCIQDblEvESqEZBijTcIyUiyu9lTxGqYUXP+UrE2SORUFUXAIhAM+pUUKoML8tgqns0ZulHdeXMfUmcuC5LezY7BwHg+ip"
-@ IN TXT "RRSIG|DNSKEY|256|MEUCIAfd86NdDM6D6cY+dHGe2AWsRTXG41p8JRsn9LncgivhAiEA557RH8DYjl/q84aFPG4c55meK5yZHmLfTvbePQ21RRI="
+@ IN TXT "DNSKEY|257|PZC2uhnQtkSz9ubMxz/1OgxKNyvrwVmIBrOlVbtwXFRZl3c4emVtz7x67mb/X8NkQ4yOjSCyzU4TyYT/rykT0w=="
+@ IN TXT "DNSKEY|256|8AY13zv4SrHuBCrTH2fDfjXz0Twg2dBFLlNnwKtTo59L27bhd71cpPFWrBq14aHEe8d6sjg+giZDyfW58gKDbA=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCIQD5GIUA0HR0NjxFMS+AxHI3Zr7P31mTqqW649xv1wE8dwIgFeFu8k0yOk7UA2n7pV/jRWhAui65kDKlLjZX3B7ev3g="
+@ IN TXT "RRSIG|DNSKEY|256|MEQCIA5O+LHbnOupFQR4XHakvY1+LHKJy9DSMZvw4uebCNcmAiAKqDRSECs1bF39zwHe7+51K8002fZOG2Xr1NtdfvXx8A=="
 
 mywebsite.custom.       86400   IN      SOA     ns1.mywebsite.custom. admin.mywebsite.custom. 2026022201 21600 3600 604800 86400
 mywebsite.custom.       86400   IN      NS      ns1.mywebsite.custom.
-mywebsite.custom. IN TXT "RRSIG|NS|MEQCID9uFpapkKJ6EaHLFD8FwdUuCLioI+JYUx0XaCQo1oMLAiAIqZwtBuq1fRyliNbSN/ousuabfQ8aqAur/WIX8JXqvA=="
+mywebsite.custom. IN TXT "RRSIG|NS|MEQCIBH6L8Ro4YiaHlSDUXwx+uyB7DMvIOXR+LMKm2iViTNXAiBzes/ZRN3QNqsNZwC1cjt1K4XtGePD8qfOwsJYir4y3w=="
+
+mywebsite.custom.       86400   IN      A       192.168.1.100
+mywebsite.custom. IN TXT "RRSIG|A|MEUCIEvMaj7FIbfk87hqp9a/B3wVjd4ADqNpGZPJYOvvLbIkAiEAwoGKyeNMXMyxvQCeaqd2kxJJuCS1DPIDW/JBWX9WEq0="
 
 ns1.mywebsite.custom.   86400   IN      A       127.0.0.11
-ns1.mywebsite.custom. IN TXT "RRSIG|A|MEUCIDPKRXl7xFktFlfs8ns3x0Z5LeyzXi8V4RoMZ5Dtnfx0AiEAxtV0oNekH+wCB7hbxcpQxAHoMdFghcO9x2WzcJxMur0="
+ns1.mywebsite.custom. IN TXT "RRSIG|A|MEQCIC2FTkJRLTHOdjDXMAaky4152El/m3RtyRMzvmNUxkZ1AiAMo4w/RidGvQ1zSk+k4a1I2Bvo6z1PxyywEiS9XLYXJg=="
 
 server1.mywebsite.custom. 86400   IN      A       192.168.1.102
-server1.mywebsite.custom. IN TXT "RRSIG|A|MEYCIQDAOiE9wkvZecSRyz1IQrfHWqWFBy+xrwp1VEoQflIOVwIhAPmC7thw/HjTjYF4aS3ejgfWSn/LqCC0gGn2DCboV0KB"
+server1.mywebsite.custom. IN TXT "RRSIG|A|MEUCIQCmM/ibVv0GSpM4mz0OTqiABij3pOnqrLK+T7TW6+UBIgIgOIjw+2OIQjWDbN1dzsiLkZ9Co/OVXReLA8yysIT7S+Y="
 
 server2.mywebsite.custom. 86400   IN      A       192.168.1.103
-server2.mywebsite.custom. IN TXT "RRSIG|A|MEYCIQChqKkvctgD//KSO2WTmsCl1aR6cORrWBREFBOmm+CVkwIhAKnw55DSpcU9D23lS1Xe5DvP/o0eIJ3HhDbdUgV6Xb5W"
+server2.mywebsite.custom. IN TXT "RRSIG|A|MEUCIQC2xVkp6GV1yUYNIkqJEN8FybSLKVL5Yob0e9Ynw8DhpgIgKw0R++a6uGGzvHOQx+2HjrJCSX/r3bEMdvbraB7PJPI="
 
 www.mywebsite.custom.   86400   IN      CNAME   server1.test.homelab.
-www.mywebsite.custom. IN TXT "RRSIG|CNAME|MEYCIQCpctGmjD6m4tvSTSvdCw3oiapIpr73N7ftPN1Jix3D0AIhAONBM6wEW20K3nt1q1gLemDqHHa7DbJzibkDjkR4jg16"
+www.mywebsite.custom. IN TXT "RRSIG|CNAME|MEQCIFVmwrJxkwEC5n5dx04JpeKnp1OADWfWFpAOKNV82l8wAiBz8q0s4U8Jw81GOvfs1MwRL9YdC6imJq8/pEdlID2G8g=="

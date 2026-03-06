@@ -1,0 +1,5 @@
+Zone: myproxy.homelab.
+Type: ZSK
+Flag: 256
+DNSKEY Base64:
+UN8skB4mnqrGsW2mI23dF7djsLfv9gNV9Qh/VUpZk7Z56wy0NzgykfcodsFUOOLubro4F4rkhk6+jOsWiwkmLw==

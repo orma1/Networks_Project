@@ -1,0 +1,5 @@
+Zone: myproxy.homelab.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+PyXI+dPd2fHjePPGNdtq1ILf5hc7nVYtuTq+yNvg66lKNvhxLOm0p0rRyEwBzdP+BDhNY8zEr3Er+JGuH3ThYg==

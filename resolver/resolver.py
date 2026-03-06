@@ -1,8 +1,6 @@
 
 import socket
 import threading
-import time
-import sys
 
 # --- Local Imports ---
 from config_loader import ConfigLoader
@@ -30,30 +28,63 @@ class Resolver:
     def _resolve_iterative(self, request, target_domain):
         current_ip = self.config.root_server_ip
         current_port = self.config.root_server_port
+        visited_ips = set() # [EDGE CASE 7] Loop Detection
         
+        qtype = request.q.qtype
+
         for jump in range(10): # Cap at 10 jumps
+            if current_ip in visited_ips:
+                print(f"    [ERROR] Routing loop detected at {current_ip}. Aborting.")
+                break
+            visited_ips.add(current_ip)
+
             print(f"    [Iterative Jump {jump+1}] Asking {current_ip} for {target_domain}")
             
             try:
                 raw_response = self.forwarder.send_query(current_ip, current_port, request.pack())
                 response = DNSRecord.parse(raw_response)
                 
-                # CASE 1: We got an Answer!
-                if len(response.rr) > 0:
-                    print(f"    [*] Final answer found at {current_ip}!")
-                    return raw_response, current_ip # <-- RETURN THE AUTH IP
-                
-                # CASE 2: We got an Error (NXDOMAIN or NODATA)
-                if response.header.rcode != 0:
-                    if jump == 0:
-                        print(f"    [*] Local Root does not know this TLD. Triggering public fallback.")
-                        return None, None # <-- NO IP, TRIGGERS PUBLIC FALLBACK
+                # [EDGE CASE 2 & 12] Distinguish RCODEs properly
+                if response.header.rcode != getattr(RCODE, 'NOERROR'):
+                    rcode_val = response.header.rcode
+                    if rcode_val == getattr(RCODE, 'NXDOMAIN'):
+                        print(f"    [*] NXDOMAIN from {current_ip}. Domain does not exist.")
+                        return raw_response, current_ip
+                    elif rcode_val in (getattr(RCODE, 'SERVFAIL'), getattr(RCODE, 'REFUSED')):
+                        print(f"    [*] Server {current_ip} returned {RCODE.get(rcode_val)}.")
+                        if jump == 0:
+                            print("    [*] Local Root failed. Triggering public fallback.")
+                            return None, None
+                        break # Abort current path
                     else:
-                        print(f"    [*] Local server {current_ip} returned error code {response.header.rcode}.")
-                        return raw_response, current_ip # <-- RETURN THE ERROR AND THE AUTH IP
+                        print(f"    [*] Server {current_ip} returned unexpected error: {rcode_val}.")
+                        return raw_response, current_ip
                 
-                # CASE 3: We got a Delegation
-                if len(response.auth) > 0:
+                # [EDGE CASE 1 & 6] We got an Answer, but is it the right one?
+                if len(response.rr) > 0:
+                    has_exact_match = any(rr.rtype == qtype for rr in response.rr)
+                    has_cname = any(rr.rtype == getattr(QTYPE, 'CNAME') for rr in response.rr)
+                    
+                    if has_exact_match:
+                        print(f"    [*] Final exact answer found at {current_ip}!")
+                        return raw_response, current_ip
+                    elif has_cname:
+                        print(f"    [*] CNAME redirect detected at {current_ip}. Returning to client.")
+                        return raw_response, current_ip
+                    else:
+                        print(f"    [*] Answer section present, but QTYPE mismatch.")
+                        return raw_response, current_ip
+                
+                # [EDGE CASE 9] Authority-SOA NODATA Handling
+                has_soa = any(auth_rr.rtype == getattr(QTYPE, 'SOA') for auth_rr in response.auth)
+                if len(response.rr) == 0 and has_soa:
+                    print(f"    [*] Authoritative NODATA (SOA) received. Record type does not exist.")
+                    return raw_response, current_ip
+
+                # [EDGE CASE 3] Delegation
+                has_ns_delegation = any(auth_rr.rtype == getattr(QTYPE, 'NS') for auth_rr in response.auth)
+                
+                if has_ns_delegation:
                     if getattr(self, 'dnssec_enabled', False):
                         for auth_rr in response.auth:
                             if auth_rr.rtype == getattr(QTYPE, 'TXT'):
@@ -62,27 +93,33 @@ class Resolver:
                                     child_domain = str(auth_rr.rname)
                                     ds_hash = txt_data.split("|")[1]
                                     self.ds_cache[child_domain] = ds_hash
-                                    print(f"    [+] DNSSEC: Captured DS hash for {child_domain} from Parent.")
+                                    print(f"    [+] DNSSEC: Captured DS hash for {child_domain}.")
                     
-                    next_ip = None
-                    for ar in response.ar: 
-                        if ar.rtype == getattr(QTYPE, 'A'):
-                            next_ip = str(ar.rdata)
-                            break
+                    # [EDGE CASE 5] Extract ALL available IPs, but we'll try the first one for now
+                    glue_ips = [str(ar.rdata) for ar in response.ar if ar.rtype == getattr(QTYPE, 'A')]
                     
-                    if next_ip:
+                    if glue_ips:
+                        next_ip = glue_ips[0]
                         print(f"    [*] Delegation received. Moving to: {next_ip}")
                         current_ip = next_ip
                         continue
                     else:
-                        print("    [ERROR] Delegation missing glue record (IP).")
+                        # [EDGE CASE 4] Delegation without glue
+                        print("    [ERROR] Delegation missing glue record. Recursive glue lookup not implemented.")
                         break
                         
+            # [EDGE CASE 3] Distinguish specific network failures
+            except socket.timeout:
+                print(f"    [ERROR] Timeout communicating with {current_ip}.")
+                if jump == 0:
+                    return None, None # Fallback to public if root is dead
+                break
             except Exception as e:
-                print(f"    [ERROR] Iteration failed at {current_ip}: {e}")
+                print(f"    [ERROR] Packet parsing/iteration failed at {current_ip}: {e}")
                 break
                 
-        print("    [ERROR] Resolution failed (Max jumps or missing data).")
+        print("    [ERROR] Resolution failed (Max jumps, loops, or missing data).")
+        # [EDGE CASE 10] Preserve original request ID and QR flag
         error_reply = request.reply()
         error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
         return error_reply.pack(), None
@@ -126,21 +163,23 @@ class Resolver:
                 if getattr(self, 'dnssec_enabled', False) and auth_ip is not None:
                     target_ip_ans = None
                     rrsig_b64 = None
+                    actual_record_name = qname # Default to the query name
                     
                     # 1. Separate the IP from the Signature
                     for rr in real_reply.rr:
                         if rr.rtype == getattr(QTYPE, 'A'):
                             target_ip_ans = str(rr.rdata)
+                            # CRITICAL FIX: Grab the actual name of the A record (e.g., server1.test.homelab.)
+                            actual_record_name = str(rr.rname) 
                         elif rr.rtype == getattr(QTYPE, 'TXT'):
-                            # Safely extract the signature without formatting corruption
                             txt_val = b"".join(rr.rdata.data).decode('utf-8')
                             if txt_val.startswith("RRSIG|A|"):
                                 rrsig_b64 = txt_val.split("|")[2]
                     
                     # 2. If we found both, validate them!
                     if target_ip_ans and rrsig_b64:
-                        # DYNAMIC IP: No more hardcoding! We ask the exact server that gave us the data.
-                        is_secure = self.verify_dnssec_chain(qname, "A", target_ip_ans, rrsig_b64, auth_ip)
+                        # Use actual_record_name instead of qname so the CNAME math lines up!
+                        is_secure = self.verify_dnssec_chain(actual_record_name, "A", target_ip_ans, rrsig_b64, auth_ip)
                         
                         if not is_secure:
                             print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
@@ -153,9 +192,14 @@ class Resolver:
 
                 # --- STEP 4: CACHE & REPLY ---
                 # Fix Flags
-                real_reply.header.aa = 0 # BUG
+                real_reply.header.aa = 0
                 real_reply.header.ra = 1 
-                
+                if real_reply.header.rcode == 0 and getattr(self, 'dnssec_enabled', False) and auth_ip is not None:
+                    # If is_secure is True from Step 3, we successfully did the math
+                    real_reply.header.ad = 1 if is_secure else 0
+                else:
+                    real_reply.header.ad = 0
+
                 # Only cache successful responses (NOERROR)
                 if real_reply.header.rcode == 0:
                     self.cache.put(qname, qtype, real_reply, self.config.default_ttl)    

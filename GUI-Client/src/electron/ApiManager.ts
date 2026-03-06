@@ -1,13 +1,15 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { scanDnsServers } from "./util/dns_scanner.js";
+import { generateNewZonePayload } from "./util/generate_zone.js";
+import { getInfrastructureConfig } from "./util/config_loader.js";
 const mock_data = {
   alert: "DNSSEC BOGUS",
   ip: "6.6.6.6",
   id: 0,
 };
-
-const apiHost = "127.0.0.1";
-const apiPort = "8000";
+const config = getInfrastructureConfig();
+const apiHost = config.API.bind_ip;
+const apiPort = config.API.bind_port;
 let count = 0;
 
 export function get_data(mainWindow: BrowserWindow) {
@@ -24,7 +26,6 @@ export function get_data_interval(mainWindow: BrowserWindow) {
 }
 
 // ApiManager.ts
-
 // Controller for UI updates
 export async function pushDnsStatusToUI(mainWindow: BrowserWindow) {
   const statusFlags = await scanDnsServers();
@@ -39,7 +40,6 @@ export async function pushToUI(
   mainWindow.webContents.send(eventName, payload);
 }
 
-// Dedicated DEBUG Controller (Only logs, doesn't touch UI)
 export async function debugDnsScanner() {
   const statusFlags = await scanDnsServers();
   console.log("[DEBUG] DNS Server Status Flags:", statusFlags);
@@ -61,9 +61,9 @@ export function startWatchdog(mainWindow: BrowserWindow, intervalMs = 3000) {
   }, intervalMs);
 }
 export function registerZoneHandlers() {
-  ipcMain.handle("api:fetch-zone-list", async (_, tier: string) => {
+  ipcMain.handle("api:fetch-zone-list", async (_, nameServer: string) => {
     try {
-      const apiUrl = `http://${apiHost}:${apiPort}/api/zones/list/${tier}`;
+      const apiUrl = `http://${apiHost}:${apiPort}/api/zones/list/${nameServer}`;
       const response = await fetch(apiUrl);
       if (!response.ok) return [];
       return await response.json();
@@ -73,23 +73,35 @@ export function registerZoneHandlers() {
     }
   });
 
-  ipcMain.handle("api:fetch-zone", async (_, zoneFileName: string) => {
-    try {
-      const apiUrl = `http://${apiHost}:${apiPort}/api/zone/${zoneFileName}`;
-      const response = await fetch(apiUrl);
-      if (!response.ok) return null;
-      return await response.json();
-    } catch (error) {
-      console.error("[Backend] Network error fetching zone:", error);
-      return null;
-    }
-  });
+  ipcMain.handle(
+    "api:fetch-zone",
+    async (_, nameServer: string, zoneName: string) => {
+      console.log("[Backend] Fatching Zones");
+      if (apiHost === undefined || apiPort === undefined) {
+        console.log("[Backend] Problem with the URL");
+        return null;
+      }
+      if (nameServer === undefined || zoneName === undefined) {
+        console.log("[Frontend] Problem with the UI logic");
+      }
+      try {
+        const apiUrl = `http://${apiHost}:${apiPort}/api/zone/${nameServer}/${zoneName}`;
+        const response = await fetch(apiUrl);
+        console.log(response);
+        if (!response.ok) return null;
+        return await response.json();
+      } catch (error) {
+        console.error("[Backend] Network error fetching zone:", error);
+        return null;
+      }
+    },
+  );
 
   ipcMain.handle(
     "api:save-zone",
-    async (_, zoneFileName: string, zoneData: any) => {
+    async (_, nameServer: string, zoneName: string, zoneData: ZoneData) => {
       try {
-        const apiUrl = `http://${apiHost}:${apiPort}/api/zone/${zoneFileName}`;
+        const apiUrl = `http://${apiHost}:${apiPort}/api/zone/${nameServer}/${zoneName}`;
         const response = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -103,6 +115,77 @@ export function registerZoneHandlers() {
           );
         }
         return { success: true, message: (await response.json()).message };
+      } catch (error) {
+        if (error instanceof Error)
+          return { success: false, error: error.message };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "create-new-zone",
+    async (_, nameServer: string, zoneName: string) => {
+      if (!zoneName || typeof zoneName !== "string") {
+        return { success: false, error: "Invalid zone name provided." };
+      }
+
+      // Clean the input to just the base name (e.g., "project.homelab") for the URL
+      const cleanName = zoneName.trim().replace(/\.$/, "");
+
+      // Generate the strict JSON payload
+      const payload = generateNewZonePayload(cleanName);
+
+      try {
+        // Send it directly to your FastAPI backend using the dynamic host/port and nameServer
+        const response = await fetch(
+          `http://${apiHost}:${apiPort}/api/zone/${nameServer}/${cleanName}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        if (response.ok) {
+          console.log(
+            `[Electron] Successfully created new zone file: ${cleanName}.zone in ${nameServer}`,
+          );
+          return { success: true };
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `[Electron] FastAPI rejected zone creation:`,
+            errorText,
+          );
+          return { success: false, error: `API Error: ${response.statusText}` };
+        }
+      } catch (error) {
+        console.error("[Electron] Network error creating zone:", error);
+        if (error instanceof Error) {
+          return { success: false, error: error.message };
+        }
+        return { success: false, error: "Unknown network error." };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "api:delete-zone",
+    async (_, nameServer: string, zoneName: string) => {
+      try {
+        const response = await fetch(
+          `http://${apiHost}:${apiPort}/api/zone/${nameServer}/${zoneName}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        if (response.ok) return { success: true };
+
+        const errorText = await response.text();
+        return { success: false, error: errorText };
       } catch (error) {
         if (error instanceof Error)
           return { success: false, error: error.message };

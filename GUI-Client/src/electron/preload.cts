@@ -7,12 +7,18 @@ electron.contextBridge.exposeInMainWorld("electron", {
     });
   },
   getData: () => electron.ipcRenderer.invoke("getMockData"),
-  fetchZoneData: (serverName: string) =>
-    electron.ipcRenderer.invoke("api:fetch-zone", serverName),
+  fetchZoneData: (nameServer: string, zoneName: string) =>
+    electron.ipcRenderer.invoke("api:fetch-zone", nameServer, zoneName),
 
-  saveZoneData: (serverName: string, records: any) =>
-    electron.ipcRenderer.invoke("api:save-zone", serverName, records),
+  saveZoneData: (nameServer: string, zoneName: string, payload: any) =>
+    electron.ipcRenderer.invoke("api:save-zone", nameServer, zoneName, payload),
 
   fetchZoneList: (tier: string) =>
     electron.ipcRenderer.invoke("api:fetch-zone-list", tier),
-}); //satisfies Window["electron"]);
+
+  createNewZone: (nameServer: string, zoneName: string) =>
+    electron.ipcRenderer.invoke("create-new-zone", nameServer, zoneName),
+
+  deleteZone: (nameServer: string, zoneName: string) =>
+    electron.ipcRenderer.invoke("api:delete-zone", nameServer, zoneName),
+} satisfies Window["electron"]);
