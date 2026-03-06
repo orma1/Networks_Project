@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cinema Node</title>
+    <style>
+        body { background: #fdf6f0; font-family: 'Segoe UI', sans-serif; text-align: center; color: #5d5d5d; }
+        .badge { background: #ff9a9e; color: white; padding: 10px 20px; border-radius: 20px; display: inline-block; margin: 10px; }
+        .btn { background: #6c5ce7; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; text-decoration: none; }
+        video { border-radius: 15px; background: black; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .controls-container { margin: 20px; min-height: 50px; }
+    </style>
+</head>
+<body>
+    <h1>🎬 Cinema Node</h1>
+    <div class="badge">Protocol: {{ protocol }}</div>
+    <div class="badge" style="background:#6c5ce7">Status: {{ quality }}</div>
+
+    <form action="/switch_protocol" method="POST" style="margin-bottom:20px;">
+        <button type="submit" class="btn">🔄 Switch to {% if protocol == 'TCP' %}RUDP{% else %}TCP{% endif %}</button>
+    </form>
+
+    {% if video_file %}
+        <div class="controls-container">
+            {% if protocol == 'RUDP' %}
+            <form action="/play/{{ video_file }}" method="GET">
+                <label>Adaptive Quality: </label>
+                <select name="force_quality" onchange="this.form.submit()" style="padding:10px; border-radius:5px;">
+                    <option value="auto" {% if selected_quality == 'auto' %}selected{% endif %}>Auto (DASH)</option>
+                    <option value="1080" {% if selected_quality == '1080' %}selected{% endif %}>1080p</option>
+                    <option value="720" {% if selected_quality == '720' %}selected{% endif %}>720p</option>
+                    <option value="480" {% if selected_quality == '480' %}selected{% endif %}>480p</option>
+                </select>
+            </form>
+            {% else %}
+            <p>TCP Mode: Quality managed by standard congestion control.</p>
+            {% endif %}
+        </div>
+
+        <video controls autoplay width="800">
+            <source src="/stream/{{ video_file }}?force_quality={{ selected_quality }}" type="video/mp4">
+        </video>
+        <br><br><a href="/" class="btn">Back to Library</a>
+    {% else %}
+        <div style="margin-top: 50px;">
+            {% for m in movies %}
+            <div style="background:white; padding:20px; margin:10px; display:inline-block; border-radius:15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h3>{{ m.name }}</h3>
+                <a href="/play/{{ m.file }}" class="btn">Watch Now</a>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</body>
+</html>
