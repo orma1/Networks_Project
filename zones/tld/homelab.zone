@@ -5,4 +5,4 @@ $TTL 86400
 test                IN	NS  	ns1.test.homelab.
 ns1.test.homelab.   IN	A   	127.0.0.5
 myproxy             IN	NS  	ns1.myproxy.homelab.
-ns1.myproxy.homelab. IN	A  	127.0.0.11
+ns1.myproxy.homelab. IN	A   	127.0.0.11

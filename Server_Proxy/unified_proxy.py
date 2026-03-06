@@ -113,7 +113,7 @@ if __name__ == "__main__":
     v_net = VirtualNetworkInterface(client_name="ProxyNode")
     MY_IP = v_net.setup_network()
     try:
-        ans = DNSRecord.question("www.myserver.homelab.").send("127.0.0.2", 53, timeout=2.0)
+        ans = DNSRecord.question("test.homelab.").send("127.0.0.2", 53, timeout=2.0)
         ORIGIN_ADDR = (str(ans.get_a().rdata), 9000)
     except:
         ORIGIN_ADDR = ("127.0.0.13", 9000)

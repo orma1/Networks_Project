@@ -1,12 +1,10 @@
 $ORIGIN mywebsite.custom.
 $TTL 86400
 
-@       IN  SOA ns1.mywebsite.custom. admin.mywebsite.custom. 2026022201 21600 3600 604800 86400
-@       IN  NS  ns1.mywebsite.custom.
-@       IN  A   192.168.1.100
-
-ns1     IN  A   127.0.0.11
-server1 IN  A   192.168.1.102
-server2 IN  A   192.168.1.103
-
-www     IN  CNAME server1.test.homelab.
+@                   IN	SOA 	ns1.mywebsite.custom. admin.mywebsite.custom. 2026022201 21600 3600 604800 86400
+@                   IN	NS  	ns1.mywebsite.custom.
+@                   IN	A   	192.168.1.100
+ns1                 IN	A   	127.0.0.11
+server1             IN	A   	192.168.1.102
+server2             IN	A   	192.168.1.103
+www                 IN	CNAME	server1.test.homelab.
