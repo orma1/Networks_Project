@@ -87,7 +87,6 @@ export function registerZoneHandlers() {
       try {
         const apiUrl = `http://${apiHost}:${apiPort}/api/zone/${nameServer}/${zoneName}`;
         const response = await fetch(apiUrl);
-        console.log(response);
         if (!response.ok) return null;
         return await response.json();
       } catch (error) {
@@ -186,6 +185,55 @@ export function registerZoneHandlers() {
 
         const errorText = await response.text();
         return { success: false, error: errorText };
+      } catch (error) {
+        if (error instanceof Error)
+          return { success: false, error: error.message };
+      }
+    },
+  );
+
+  // ===============================
+  //        Config Handlers
+  // ===============================
+
+  ipcMain.handle("api:fetch-config", async (_, configName: string) => {
+    console.log("[Backend] Fatching Config");
+    if (apiHost === undefined || apiPort === undefined) {
+      console.log("[Backend] Problem with the URL");
+      return null;
+    }
+    if (configName === undefined) {
+      console.log("[Frontend] Problem with the UI logic");
+    }
+    try {
+      const apiUrl = `http://${apiHost}:${apiPort}/api/config/${configName}`; // (root, auth, resolver, no need adding _config)
+      const response = await fetch(apiUrl);
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (error) {
+      console.error("[Backend] Network error fetching config:", error);
+      return null;
+    }
+  });
+
+  ipcMain.handle(
+    "api:save-config",
+    async (_, configName: string, configData: ConfigFormat) => {
+      try {
+        const apiUrl = `http://${apiHost}:${apiPort}/api/config/${configName}`;
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(configData),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.detail || `FastAPI Error: ${response.statusText}`,
+          );
+        }
+        return { success: true, message: (await response.json()).message };
       } catch (error) {
         if (error instanceof Error)
           return { success: false, error: error.message };

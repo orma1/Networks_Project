@@ -21,4 +21,9 @@ electron.contextBridge.exposeInMainWorld("electron", {
 
   deleteZone: (nameServer: string, zoneName: string) =>
     electron.ipcRenderer.invoke("api:delete-zone", nameServer, zoneName),
+
+  fetchConfig: (configName: string) =>
+    electron.ipcRenderer.invoke("api:fetch-config", configName),
+  saveConfig: (configName: string, configData: ConfigFormat) =>
+    electron.ipcRenderer.invoke("api:save-config", configName, configData),
 } satisfies Window["electron"]);

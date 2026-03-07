@@ -1,0 +1,51 @@
+.config-editor {
+    max-width: 800px;
+}
+
+.config-card {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Horizontal, Vertical, Blur, Color */
+}
+
+.config-label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+
+.config-input {
+    margin-left: 10px;
+    padding: 4px 8px;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+}
+
+.save-button {
+    padding: 10px 20px;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    transition: background-color 0.3s ease;
+}
+
+.save-button:disabled {
+    background-color: #aaa;
+    cursor: not-allowed;
+}
+
+.save-button.saved-success {
+    background-color: green;
+    color: white;
+}
+
+.error-text {
+    color: red;
+    margin-top: 10px;
+    font-weight: bold;
+}

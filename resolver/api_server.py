@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Union
 import subprocess
 import os
 import threading
 import uvicorn
 import ipaddress 
+import traceback
+import yaml
 
 # ==========================================
 # 0. SETUP & PATHS
@@ -47,6 +49,48 @@ class ARecordUpdate(BaseModel):
     name: str
     ip: str
     ttl: Optional[int] = None
+# --- 1. CONFIGURATION SCHEMAS ---
+class ServerSection(BaseModel):
+    bind_ip: str
+    bind_port: int
+    buffer_size: int
+
+class NameServerDataSection(BaseModel):
+    zone_directory: str
+
+class NameServerConfig(BaseModel):
+    server: ServerSection
+    data: NameServerDataSection
+
+class ResolverUpstreamSection(BaseModel):
+    root_server_ip: str
+    root_server_port: int
+    public_forwarder: str
+    public_port: int
+
+class ResolverBehaviorSection(BaseModel):
+    default_ttl: int
+    timeout: float
+    enable_logging: bool
+
+class ResolverStorageSection(BaseModel):
+    cache_file: str
+    save_interval: int
+    cache_capacity: int
+
+class ResolverConfig(BaseModel):
+    server: ServerSection
+    upstream: ResolverUpstreamSection
+    behavior: ResolverBehaviorSection
+    storage: ResolverStorageSection
+
+# Union allows FastAPI to accept either schema depending on the payload
+ConfigPayload = Union[ResolverConfig, NameServerConfig]
+
+# --- 2. PATH RESOLUTION ---
+# api_server.py is in /resolver/, so we go up one level to /configs/
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "configs"))
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -208,24 +252,6 @@ async def delete_zone(server_name: str, zone_name: str):
         return {"success": True, "message": f"Zone {zone_name} deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete zone files: {str(e)}")
-
-# @app.delete("/api/zone/{server_name}")
-# async def delete_zone(server_name: str):
-#     file_path = find_zone_file(server_name)
-#     if not file_path:
-#         raise HTTPException(status_code=404, detail="Zone file not found.")
-
-#     try:
-#         os.remove(file_path)
-#         signed_path = file_path.replace(".zone", ".signed.zone")
-#         if os.path.exists(signed_path):
-#             os.remove(signed_path)
-            
-#         print(f"[FastAPI] Successfully deleted zone: {server_name}")
-#         return {"success": True, "message": f"Zone {server_name} deleted."}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to delete zone files: {str(e)}")
-
 # ==========================================
 # 4. SPECIFIC RECORD ENDPOINTS
 # ==========================================
@@ -282,6 +308,55 @@ async def update_a_record(
 # 5. SERVER RUNNER
 # ==========================================
 resolver_ref = None
+# ==========================================
+# 6. CONFIG ENDPOINTS 
+# ==========================================
+
+@app.get("/api/config/{server_name}")
+async def get_server_config(server_name: str):
+    file_path = os.path.join(CONFIG_DIR, f"{server_name.lower()}_config.yaml") 
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Config file not found.")
+
+    try:
+        # Added encoding="utf-8" to prevent Windows encoding crashes
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+        
+        if not raw_content.strip():
+            raise HTTPException(status_code=500, detail="File is empty.")
+
+        raw_yaml_dict = yaml.safe_load(raw_content)
+
+        if server_name.lower() == "resolver":
+            validated_config = ResolverConfig(**raw_yaml_dict)
+        else:
+            validated_config = NameServerConfig(**raw_yaml_dict)
+
+        return validated_config
+
+    except Exception as e:
+        traceback.print_exc()  # This forces the full red stack trace to print
+        raise HTTPException(status_code=500, detail=f"Backend crash: {str(e)}")
+
+@app.post("/api/config/{server_name}")
+async def save_server_config(server_name: str, payload: ConfigPayload):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    file_path = os.path.join(CONFIG_DIR, f"{server_name.lower()}_config.yaml")
+
+    try:
+        # Convert Pydantic object back to a standard dictionary
+        config_dict = payload.model_dump() 
+        
+        with open(file_path, "w") as f:
+            # Dump dictionary to strictly formatted YAML
+            yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
+            
+        return {"success": True, "message": "Configuration saved successfully."}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write YAML config: {str(e)}")
 
 class APIServer:
     def __init__(self, resolver, host="127.0.0.1", port=8000):
