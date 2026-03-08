@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import Sidebar from "./components/sidebar/sidebar";
 import ZoneEditor from "./components/zoneEditor/zoneEditor";
+import ConfigEditor from "./components/configEditor/configEditor";
 
 function App() {
   const [selectedNameServer, setSelectedNameServer] = useState<string>("Root");
@@ -19,6 +20,10 @@ function App() {
         <main style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
           <ZoneEditor
             key={selectedNameServer}
+            nameServer={selectedNameServer}
+          />
+          <ConfigEditor
+            // key={selectedNameServer}
             nameServer={selectedNameServer}
           />
         </main>

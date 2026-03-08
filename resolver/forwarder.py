@@ -1,7 +1,4 @@
 import socket
-
-# TODO: Make a observer pattern
-
 class Forwarder:
     """
     Handles the raw network transport for DNS queries.
@@ -11,7 +8,8 @@ class Forwarder:
     3. Waiting for responses (with timeout) from Public DNS server
     4. closing the connection when recived a response or timeout occurs.
     """
-    def __init__(self, timeout: float = 2.0):
+    def __init__(self, local_ip: str = '127.0.0.2', timeout: float = 2.0):
+        self.local_ip = local_ip
         self.timeout = timeout
 
     def send_query(self, target_ip: str, target_port: int, raw_data: bytes) -> bytes:
@@ -21,6 +19,7 @@ class Forwarder:
         """
         # Create a new socket for *this specific transaction*
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((self.local_ip, 0))
         sock.settimeout(self.timeout)
         
         try:

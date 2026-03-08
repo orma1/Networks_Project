@@ -39,6 +39,7 @@ body,
     /* Accents & Borders */
     --border-color: #e5e7eb; /* Dividers, lines */
     --brand-primary: #10b981; /* A nice green for active UI elements */
+    --brand-blue: #0496ff;
 
     /* Status Indicators */
     --status-on: #22c55e;
@@ -60,6 +61,8 @@ body,
     --small: calc(var(--base-size) / var(--scale));
 
     --default-margin: 1rem;
+
+    --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
 /* =========================================
@@ -67,18 +70,31 @@ body,
    ========================================= */
 [data-theme="dark"] {
     /* Surface & Backgrounds */
-    --bg-main: #111827; /* Very dark background */
-    --bg-surface: #1f2937; /* Slightly lighter dark for sidebars/cards */
+    /*
+    --bg-main: #111827;
+    --bg-surface: #1f2937;
+    */
+
+    --bg-main: #131316; /* Very dark background */
+    --bg-surface: #26262c; /* Slightly lighter dark for sidebars/cards */
 
     /* Text Colors */
     --text-primary: #f9fafb; /* Crisp white for dark mode */
-    --text-muted: #9ca3af; /* Soft gray for subtext */
+    --text-muted: #d1d5db; /* MUCH brighter silver/gray for readability */
+
+    /* Status Indicators */
+    --status-on: #22c55e;
+    --status-off: #b91c1c;
 
     /* Accents & Borders */
-    --border-color: #374151; /* Subtle dark borders */
-    --brand-primary: #34d399; /* Slightly brighter green for dark mode contrast */
+    /*--border-color: #374151; */
+    --border-color: #1c1c21; /* Subtle dark borders */
+    --brand-primary: #059669; /* Slightly brighter green for dark mode contrast */
+    --brand-blue: #027bce;
 
     /* Status Indicators stay the same, or you can tweak them here */
+
+    --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.2);
 }
 
 /* Optional: Auto-detect OS Dark Mode preferences */
@@ -90,6 +106,7 @@ body,
         --text-muted: #9ca3af;
         --border-color: #374151;
         --brand-primary: #34d399;
+        --brand-blue: #0496ff;
     }
 }
 

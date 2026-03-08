@@ -1,84 +1,145 @@
-/* sidebar.css */
-
 .sidebar-container {
-    width: 350px;
+    width: 320px;
     height: 100vh;
-    padding: 20px 24px;
-    /* Replaced #f9fafb with the surface variable! */
+    padding: 24px 0; /* Removed left/right padding so backgrounds hit the edge! */
     background-color: var(--bg-surface);
     border-right: 1px solid var(--border-color);
-}
-
-.header {
-    font-size: var(--h4); /* Using your dynamic math scale */
-    color: var(--text-primary);
-}
-
-.tree-line {
-    border-left: 2px solid #e5e7eb; /* The actual vertical line */
-    margin-left: 8px;
-    padding-left: 16px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    justify-content: space-between;
 }
 
-.server-name {
-    font-size: var(--h5);
-    font-weight: 500;
-    color: #374151;
+.sidebar-group {
+    margin-bottom: 24px;
 }
 
-.subtext-container {
+.theme-toggle-btn {
+    width: 100%;
+    padding: 10px 16px;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    border: 0px solid var(--border-color);
+    border-radius: 0px;
+    font-size: var(--p);
+    font-weight: 600;
+    cursor: pointer;
     display: flex;
     align-items: center;
-    margin: 0;
-    gap: 3px;
-    margin-left: 2px;
+    justify-content: center;
+    gap: 8px;
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease;
 }
 
-.dot {
-    width: 10px;
-    height: 10px;
-    border: 1px;
-    border-radius: 1rem;
-    margin-top: 3px;
+.theme-toggle-btn:hover {
+    background-color: var(--border-color);
 }
 
-.subtext {
+.sidebar-group-title {
     font-size: var(--h6);
     color: var(--text-muted);
+    padding: 0 32px; /* Restore padding just for the title */
+    margin-bottom: 4px;
+}
+.tree-line {
+    margin-left: 38px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* 2. Draw the line independently so it floats on top of everything */
+.tree-line::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    background-color: #d1d5db; /* Light mode line color */
+    z-index: 5; /* Forces the line ABOVE the active background! */
 }
 
 .server-item {
     display: flex;
     flex-direction: column;
-    /*gap: 4px;*/
-    padding: 8px 12px;
-    margin-left: -12px; /* Offset the padding so it aligns with the line */
-    cursor: pointer; /* Change the mouse to a pointing hand */
+    padding: 12px 16px 12px 24px;
+    cursor: pointer;
+    position: relative;
     transition: background-color 0.2s ease;
 }
-
-/* Add a hover effect */
-.server-item:hover {
-    background-color: rgba(0, 0, 0, 0.05); /* Subtle gray on hover */
+/* Subtle hover for inactive items */
+.server-item:hover:not(.active) {
+    background-color: rgba(0, 0, 0, 0.02);
 }
 
-/* Add the specific style for when it is actively selected */
+/* The solid light gray background from the mockup */
 .server-item.active {
-    background-color: rgba(
-        0,
-        0,
-        0,
-        0.1
-    ); /* A darker, neutral shade of the gray bg */
+    background-color: #eeeeee;
 }
 
-/* Make the text slightly bolder when active */
+/* THE MAGIC GREEN RIGHT-BORDER */
+.server-item.active::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px; /* Thick green bar */
+    background-color: var(--brand-primary);
+}
+
 .server-item.active .server-name {
-    color: var(
-        --text-primary
-    ); /* Swapped this from green to standard text color too! */
-    font-weight: 700;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.server-name {
+    font-size: var(--h5); /* Much larger text from mockup */
+    font-weight: 400;
+    color: var(--text-muted); /* Dimmer text when not active */
+    margin-bottom: 4px;
+    transition: color 0.2s ease;
+}
+
+.subtext-container {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Slightly wider gap */
+}
+
+.dot {
+    width: 12px; /* Slightly larger dot */
+    height: 12px;
+    border-radius: 50%; /* Perfect circle */
+}
+
+.subtext {
+    font-size: var(--p);
+    color: var(--text-muted);
+}
+
+/* Dark mode overrides for the new background colors */
+[data-theme="dark"] .server-item.active {
+    /* Mixes your exact custom surface color with 8% pure white! */
+    background-color: color-mix(in srgb, var(--bg-surface), white 8%);
+}
+
+[data-theme="dark"] .server-item:hover:not(.active) {
+    /* Overlays 5% white transparency over whatever is behind it */
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .tree-line::before {
+    background-color: var(
+        --border-color
+    ); /* Perfectly matches your custom #1c1c21 */
+}
+[data-theme="dark"] .tree-line {
+    border-color: var(--text-muted);
+}
+
+[data-theme="dark"] .tree-line::before {
+    background-color: var(--text-muted);
 }

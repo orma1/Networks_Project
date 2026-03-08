@@ -35,6 +35,8 @@ interface Window {
     getData: () => Promise<StaticData>;
     // subscribeChangeView: (callback: (view: View) => void) => void;
     // sendFrameAction: (payload: FrameWindowAction) => void;
+
+    // === Zones Functions ===
     fetchZoneData: (
       serverName: string,
       zoneName: string,
@@ -52,6 +54,12 @@ interface Window {
     deleteZone: (
       nameServer: string,
       zoneName: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    // === Configs ===
+    fetchConfig: (configName: string) => Promise<ConfigFormat | null>;
+    saveConfig: (
+      configName: string,
+      ConfigData: ConfigFormat,
     ) => Promise<{ success: boolean; error?: string }>;
   };
 }
@@ -87,3 +95,42 @@ type UpdateRecordFn = <K extends keyof DnsRecord>(
   field: K,
   value: DnsRecord[K],
 ) => void;
+
+type NameServerConfigFormat = {
+  server: {
+    bind_ip: string;
+    bind_port: number;
+    buffer_size: number;
+  };
+  data: {
+    zone_directory: string;
+  };
+};
+
+type ResolverConfigFormat = {
+  server: {
+    bind_ip: string;
+    bind_port: number;
+    buffer_size: number;
+  };
+  upstream: {
+    root_server_ip: string;
+    root_server_port: number;
+    public_forwarder: string;
+    public_port: number;
+  };
+  behavior: {
+    default_ttl: number;
+    timeout: number;
+    enable_logging: boolean;
+  };
+  storage: {
+    cache_file: string;
+    save_interval: number;
+    cache_capacity: number;
+  };
+};
+
+type ConfigFormat = ResolverConfigFormat | NameServerConfigFormat;
+
+//type ConfigData

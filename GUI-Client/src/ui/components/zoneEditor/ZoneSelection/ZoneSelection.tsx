@@ -34,11 +34,12 @@ export default function ZoneSelection({
   onDeleteZone,
 }: ZoneSelectionProps) {
   return (
-    <>
+    <div className="zone-selection-wrapper">
+      {/* --- HEADER & GLOBAL ACTIONS --- */}
       <div className="zone-header">
         <h2>{serverName} Zone Configuration</h2>
 
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div className="zone-header-actions">
           {isCreating ? (
             <>
               <input
@@ -46,6 +47,8 @@ export default function ZoneSelection({
                 placeholder="e.g. project.homelab"
                 value={newZoneName}
                 onChange={(e) => onSetNewZoneName(e.target.value)}
+                className="config-input"
+                style={{ marginTop: 0, width: "200px" }}
               />
               <button onClick={onCreateZone} className="btn-save">
                 Create
@@ -59,28 +62,17 @@ export default function ZoneSelection({
             </>
           ) : (
             <>
-              <span>Select Zone:</span>
-              {availableZones.length > 0 && (
-                <select
-                  value={selectedZone}
-                  onChange={(e) => onSelectZone(e.target.value)}
-                  className="zone-list"
-                >
-                  {availableZones.map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}.zone
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button onClick={() => onSetIsCreating(true)} className="btn-add">
+              <button
+                onClick={() => onSetIsCreating(true)}
+                className="btn-save"
+                style={{ width: "auto" }}
+              >
                 + New Zone
               </button>
-
               <button
                 onClick={() => onDeleteZone(selectedZone)}
                 className="btn-delete"
-                style={{ marginLeft: "10px" }}
+                disabled={!selectedZone}
               >
                 Delete Zone
               </button>
@@ -89,26 +81,43 @@ export default function ZoneSelection({
         </div>
       </div>
 
+      {/* --- FOLDER TABS & CONFIG CARD --- */}
       {!isCreating && availableZones.length > 0 && (
-        <div className="zone-globals">
-          <div className="input-group">
-            <label>$ORIGIN</label>
-            <input
-              type="text"
-              value={origin}
-              onChange={(e) => onChangeOrigin(e.target.value)}
-            />
+        <div className="zone-folder-container">
+          {/* 1. The Tab Bar */}
+          <div className="zone-tabs">
+            {availableZones.map((zone) => (
+              <button
+                key={zone}
+                className={`zone-tab ${selectedZone === zone ? "active" : ""}`}
+                onClick={() => onSelectZone(zone)}
+              >
+                {zone}.zone
+              </button>
+            ))}
           </div>
-          <div className="input-group">
-            <label>$TTL</label>
-            <input
-              type="number"
-              value={defaultTtl}
-              onChange={(e) => onChangeTtl(parseInt(e.target.value) || 0)}
-            />
+
+          {/* 2. The Connected Card */}
+          <div className="zone-globals connected-card">
+            <div className="input-group">
+              <label>$ORIGIN</label>
+              <input
+                type="text"
+                value={origin}
+                onChange={(e) => onChangeOrigin(e.target.value)}
+              />
+            </div>
+            <div className="input-group">
+              <label>$TTL</label>
+              <input
+                type="number"
+                value={defaultTtl}
+                onChange={(e) => onChangeTtl(parseInt(e.target.value) || 0)}
+              />
+            </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

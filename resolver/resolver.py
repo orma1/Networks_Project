@@ -21,7 +21,7 @@ class Resolver:
         )
         self.dnskey_cache = {}
         self.ds_cache = {}
-        self.forwarder = Forwarder(timeout=self.config.timeout)
+        self.forwarder = Forwarder(local_ip=self.config.bind_ip, timeout=self.config.timeout)
         self.running = False
         self.server_socket = None
 
@@ -124,6 +124,96 @@ class Resolver:
         error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
         return error_reply.pack(), None
 
+    def _handle_cache_lookup(self, request, qname, qtype, addr, socket_ref):
+        """Checks the cache and sends the reply if found. Returns True if handled."""
+        cached_response = self.cache.get(qname, qtype)
+        if cached_response:
+            print(f"[CACHE HIT] {qname}")
+            reply = cached_response
+            reply.header.id = request.header.id
+            reply.header.aa = 0 # Cache is not authoritative
+            socket_ref.sendto(reply.pack(), addr)
+            return True
+        return False
+
+    def _fetch_upstream(self, request, qname):
+        """Handles local iterative routing and public fallback. Returns (reply_record, auth_ip)."""
+        upstream_data, auth_ip = self._resolve_iterative(request, qname)
+        
+        if upstream_data is None:
+            target_ip = self.config.public_forwarder
+            target_port = getattr(self.config, 'public_port', 53)
+            print(f"[*] Forwarding to Public DNS ({target_ip})...")
+            upstream_data = self.forwarder.send_query(target_ip, target_port, request.pack())
+            auth_ip = None # No direct auth IP if we used a public forwarder
+            
+        return DNSRecord.parse(upstream_data), auth_ip
+
+    def _validate_dnssec(self, request, real_reply, qname, auth_ip, addr, socket_ref):
+        """
+        Determines if validation is needed, extracts signatures, and runs the crypto.
+        Returns True (Secure), False (Insecure), or None (Aborted/SERVFAIL sent).
+        """
+        client_requested_dnssec = any(ar.rtype == getattr(QTYPE, 'OPT') and (ar.ttl & 0x8000) for ar in request.ar)
+        checking_disabled = (request.header.cd == 1)
+        should_validate = (getattr(self, 'dnssec_enabled', False) or client_requested_dnssec) and not checking_disabled
+
+        if not should_validate:
+            if checking_disabled:
+                print(f"[*] Client sent CD=1 (Checking Disabled). Bypassing DNSSEC validation for {qname}.")
+            return False
+
+        if auth_ip is None:
+            return False # Hard to validate public forwarder without building full chain from root
+
+        target_ip_ans, rrsig_b64, actual_record_name = None, None, qname 
+
+        for rr in real_reply.rr:
+            if rr.rtype == getattr(QTYPE, 'A'):
+                target_ip_ans = str(rr.rdata)
+                actual_record_name = str(rr.rname) 
+            elif rr.rtype == getattr(QTYPE, 'TXT'):
+                txt_val = b"".join(rr.rdata.data).decode('utf-8')
+                if txt_val.startswith("RRSIG|A|"):
+                    rrsig_b64 = txt_val.split("|")[2]
+
+        if target_ip_ans and rrsig_b64:
+            is_secure = DNSSECValidator.verify_dnssec_chain(
+                domain=actual_record_name, qtype_str="A", rdata_str=target_ip_ans, 
+                signature_b64=rrsig_b64, auth_ip=auth_ip, bind_ip=self.config.bind_ip,
+                dnskey_cache=self.dnskey_cache, ds_cache=self.ds_cache
+            )
+            
+            if not is_secure:
+                print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
+                error_reply = request.reply()
+                error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
+                socket_ref.sendto(error_reply.pack(), addr)
+                return None # Signal main loop to abort
+                
+            return True
+        else:
+            print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
+            return False
+
+    def _finalize_and_reply(self, real_reply, qname, qtype, is_secure, addr, socket_ref):
+        """Sets final flags, updates the cache, and sends the packet back to the client."""
+        real_reply.header.aa = 0
+        real_reply.header.ra = 1 
+        
+        # Set the AD (Authentic Data) Flag
+        if real_reply.header.rcode == 0 and is_secure:
+            real_reply.header.ad = 1
+        else:
+            real_reply.header.ad = 0
+
+        # Only cache successful responses (NOERROR)
+        if real_reply.header.rcode == 0:
+            self.cache.put(qname, qtype, real_reply, getattr(self.config, 'default_ttl', 60))    
+        
+        # Send the final reply
+        socket_ref.sendto(real_reply.pack(), addr)
+
     def handle_query(self, data, addr, socket_ref):
         try:
             request = DNSRecord.parse(data)
@@ -131,81 +221,28 @@ class Resolver:
                 print("[WARNING] Received a DNS response on the resolver. Ignoring.")
                 return
 
-            qname:str = str(request.q.qname)
-            qtype:int = request.q.qtype
+            qname = str(request.q.qname)
+            qtype = request.q.qtype
             
             # --- STEP 1: CACHE LOOKUP ---
-            cached_response = self.cache.get(qname, qtype)
-            if cached_response:
-                print(f"[CACHE HIT] {qname}")
-                reply = cached_response
-                reply.header.id = request.header.id
-                reply.header.aa = 0 # Cache is not authoritative
-                socket_ref.sendto(reply.pack(), addr)
-                return
+            if self._handle_cache_lookup(request, qname, qtype, addr, socket_ref):
+                return # Successfully served from cache!
 
             print(f"[CACHE MISS] Resolving {qname}...")
+
             # --- STEP 2: ROUTING & RESOLUTION ---
             try:
-                # 1. Ask the Local DNS Tree first
-                upstream_data, auth_ip = self._resolve_iterative(request, qname)
+                real_reply, auth_ip = self._fetch_upstream(request, qname)
                 
-                # 2. If the Local Root returned None, fallback to the Public Internet
-                if upstream_data is None:
-                    target_ip = self.config.public_forwarder
-                    target_port = self.config.public_port
-                    print(f"[*] Forwarding to Public DNS ({target_ip})...")
-                    upstream_data = self.forwarder.send_query(target_ip, target_port, request.pack())
-                    auth_ip = None
+                # --- STEP 3: DNSSEC VALIDATION ---
+                # Returns True (Secure), False (Insecure/Bypassed), or None (Validation Failed/Aborted)
+                is_secure = self._validate_dnssec(request, real_reply, qname, auth_ip, addr, socket_ref)
                 
-                # --- STEP 3: Validate Keys ---
-                real_reply = DNSRecord.parse(upstream_data)
-                if getattr(self, 'dnssec_enabled', False) and auth_ip is not None:
-                    target_ip_ans = None
-                    rrsig_b64 = None
-                    actual_record_name = qname # Default to the query name
-                    
-                    # 1. Separate the IP from the Signature
-                    for rr in real_reply.rr:
-                        if rr.rtype == getattr(QTYPE, 'A'):
-                            target_ip_ans = str(rr.rdata)
-                            # CRITICAL FIX: Grab the actual name of the A record (e.g., server1.test.homelab.)
-                            actual_record_name = str(rr.rname) 
-                        elif rr.rtype == getattr(QTYPE, 'TXT'):
-                            txt_val = b"".join(rr.rdata.data).decode('utf-8')
-                            if txt_val.startswith("RRSIG|A|"):
-                                rrsig_b64 = txt_val.split("|")[2]
-                    
-                    # 2. If we found both, validate them!
-                    if target_ip_ans and rrsig_b64:
-                        # Use actual_record_name instead of qname so the CNAME math lines up!
-                        is_secure = self.verify_dnssec_chain(actual_record_name, "A", target_ip_ans, rrsig_b64, auth_ip)
-                        
-                        if not is_secure:
-                            print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
-                            error_reply = request.reply()
-                            error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
-                            socket_ref.sendto(error_reply.pack(), addr)
-                            return # Exit out completely
-                    else:
-                        print("[!] Warning: DNSSEC enabled but missing RRSIG. Assuming insecure.")
+                if is_secure is None:
+                    return # Packet dropped due to BOGUS signature. SERVFAIL already sent.
 
                 # --- STEP 4: CACHE & REPLY ---
-                # Fix Flags
-                real_reply.header.aa = 0
-                real_reply.header.ra = 1 
-                if real_reply.header.rcode == 0 and getattr(self, 'dnssec_enabled', False) and auth_ip is not None:
-                    # If is_secure is True from Step 3, we successfully did the math
-                    real_reply.header.ad = 1 if is_secure else 0
-                else:
-                    real_reply.header.ad = 0
-
-                # Only cache successful responses (NOERROR)
-                if real_reply.header.rcode == 0:
-                    self.cache.put(qname, qtype, real_reply, self.config.default_ttl)    
-                
-                # Send the final reply
-                socket_ref.sendto(real_reply.pack(), addr)
+                self._finalize_and_reply(real_reply, qname, qtype, is_secure, addr, socket_ref)
 
             except socket.timeout:
                 print(f"[TIMEOUT] Upstream server did not respond.")
@@ -214,6 +251,7 @@ class Resolver:
 
         except Exception as e:
             print(f"[ERROR] Handling packet: {e}")
+
 
     def _listening_loop(self):
         """
@@ -236,121 +274,7 @@ class Resolver:
             except Exception as e:
                 print(f"[ERROR] Listener loop: {e}")
 
-    def verify_dnssec_chain(self, domain, qtype_str, rdata_str, signature_b64, auth_ip, auth_port=53):
-        """
-        Verifies the signature, utilizing a local cache for DNSKEYs to avoid network spam.
-        """
-        print(f"\n[*] DNSSEC: Initiating Chain of Trust Verification for {domain}")
-        
-        # 1. Figure out the apex domain (e.g., test.homelab.)
-        apex_domain = ".".join(domain.strip(".").split(".")[-2:]) + "."
-        
-        zsk_pub = None
-        ksk_pub = None
-        
-        # 2. THE CACHE CHECK
-        if apex_domain in self.dnskey_cache:
-            print(f"    [+] KEY CACHE HIT: Using stored ZSK for {apex_domain}")
-            zsk_pub = self.dnskey_cache[apex_domain].get('ZSK')
-            ksk_pub = self.dnskey_cache[apex_domain].get('KSK')
-
-        else:
-            # 3. THE CACHE MISS (Network Fetch)
-            print(f"    -> KEY CACHE MISS: Fetching DNSKEYs for {apex_domain} from {auth_ip}...")
-            key_request = DNSRecord.question(apex_domain, "TXT")
-            
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.settimeout(2.0)
-                sock.sendto(key_request.pack(), (auth_ip, auth_port))
-                response_data, _ = sock.recvfrom(4096)
-                key_reply = DNSRecord.parse(response_data)
-                
-                ksk_pub = None
-                zsk_pub_temp = None
-                zsk_signature = None
-                ksk_signature = None
-
-                for rr in key_reply.rr:
-                    if rr.rtype == getattr(QTYPE, 'TXT'):
-                        # Safely join the raw byte chunks and decode them
-                        txt_val = b"".join(rr.rdata.data).decode('utf-8')
-                        
-                        if txt_val.startswith("DNSKEY|257|"):
-                            ksk_pub = txt_val.split("|")[2]
-                        elif txt_val.startswith("RRSIG|DNSKEY|257|"):
-                            ksk_signature = txt_val.split("|")[3]
-                        elif txt_val.startswith("DNSKEY|256|"):
-                            zsk_pub_temp = txt_val.split("|")[2]
-                        elif txt_val.startswith("RRSIG|DNSKEY|256|"):
-                            zsk_signature = txt_val.split("|")[3]
-                        
-                if ksk_pub and zsk_pub_temp and ksk_signature and zsk_signature:
-                    
-                    print(f"    -> Verifying KSK self-signature (Integrity Check)...")
-                    ksk_data_string = f"{apex_domain}|DNSKEY|257|{ksk_pub}"
-                    is_ksk_valid = DNSSECValidator.verify_signature(ksk_pub, ksk_data_string, ksk_signature)
-                    
-                    if not is_ksk_valid:
-                        print("    [!] DNSSEC BOGUS: KSK self-signature failed! Key is corrupted or forged.")
-                        return False
-                    print("    [+] DNSSEC SECURE: KSK self-signature is intact.")
-
-                    print(f"    -> Verifying ZSK signature using the KSK...")
-                    zsk_data_string = f"{apex_domain}|DNSKEY|256|{zsk_pub_temp}"
-                    
-                    is_zsk_valid = DNSSECValidator.verify_signature(ksk_pub, zsk_data_string, zsk_signature)
-                    
-                    if not is_zsk_valid:
-                        print("    [!] DNSSEC BOGUS: KSK did NOT sign this ZSK! Forgery detected.")
-                        return False
-                    print("    [+] DNSSEC SECURE: KSK successfully validated the ZSK.")
-
-                    zsk_pub = zsk_pub_temp
-                    # SAVE IT TO THE VAULT!
-                    self.dnskey_cache[apex_domain] = {'KSK': ksk_pub, 'ZSK': zsk_pub}
-                    print(f"    [+] Successfully fetched and cached DNSKEYs for {apex_domain}")
-                else:
-                    print("    [!] DNSSEC BOGUS: No ZSK found in Auth response!")
-                    return False
-                    
-                    
-            except socket.timeout:
-                print("    [!] DNSSEC ERROR: Timeout fetching keys.")
-                return False
-            except Exception as e:
-                print(f"    [!] DNSSEC ERROR: {e}")
-                return False
-            finally:
-                sock.close()
-            
-        # Notice this is outdented! It runs whether we hit the cache OR fetched from the network!
-        if apex_domain != ".":
-            if apex_domain in self.ds_cache:
-                parent_ds_hash = self.ds_cache[apex_domain]
-                print(f"    -> Verifying KSK against Parent DS hash...")
-                
-                is_ds_valid = DNSSECValidator.verify_ds_record(ksk_pub, parent_ds_hash)
-                if not is_ds_valid:
-                    print("    [!] DNSSEC BOGUS: KSK does not match Parent DS!")
-                    return False
-                print("    [+] DNSSEC SECURE: Parent DS vouches for this KSK!")
-            else:
-                print(f"    [!] DNSSEC BOGUS: No DS record found for {apex_domain}. Chain broken!")
-                return False
-
-        # --- Phase 7: Do the actual math on the IP address! ---
-        data_to_verify = f"{domain}|{qtype_str}|{rdata_str}"
-        print(f"    -> Running ECDSA Math on: {data_to_verify}")
-        
-        is_valid = DNSSECValidator.verify_signature(zsk_pub, data_to_verify, signature_b64)
-        
-        if is_valid:
-            print("    [+] DNSSEC SECURE: Cryptographic math checks out!")
-            return True
-        else:
-            print("    [!] DNSSEC BOGUS: Cryptographic math FAILED!")
-            return False
+    
 
     def start(self):
         """
