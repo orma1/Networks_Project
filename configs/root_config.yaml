@@ -1,8 +1,6 @@
 server:
-    bind_ip: '127.0.0.3'
-    bind_port: 53
-    buffer_size: 512
-
+  bind_ip: 127.0.0.3
+  bind_port: 53
+  buffer_size: 512
 data:
-    # Path relative to the project root
-    zone_directory: 'zones/root/'
+  zone_directory: zones/root/

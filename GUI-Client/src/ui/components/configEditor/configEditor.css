@@ -1,0 +1,90 @@
+.config-editor {
+    max-width: 100%;
+    width: 100%;
+    flex-grow: 1;
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px; /* Matched to Zone Editor gap */
+    margin-bottom: 24px;
+}
+
+/* --- CONFIG CARDS (Unified with Zone Cards) --- */
+.config-card {
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px; /* Standardized to 8px */
+    background-color: var(--bg-surface); /* Uses global surface */
+    box-shadow: var(--shadow-sm); /* Unified shadow */
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- CONFIG INPUTS --- */
+.config-label {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 15px;
+    font-weight: 600;
+    font-size: var(--h6);
+    color: var(--text-muted); /* Match zone labels */
+}
+
+.config-input {
+    margin-top: 6px;
+    padding: 8px 12px; /* Matched to zone inputs */
+    background-color: var(--bg-main); /* Added background for contrast */
+    border: 1px solid var(--border-color); /* Unified border */
+    border-radius: 4px;
+    width: 100%;
+    box-sizing: border-box;
+    color: var(--text-primary); /* For dark mode support */
+    font-size: var(--p);
+    font-family: var(--font-family);
+    transition: border-color 0.2s ease;
+}
+
+.config-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+.config-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+/* --- CONFIG BUTTON --- */
+.save-button {
+    padding: 10px 20px;
+    cursor: pointer;
+    background-color: var(--brand-primary); /* Swapped blue for global green */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    transition: opacity 0.3s ease;
+}
+
+.save-button:hover {
+    opacity: 0.7;
+}
+
+.save-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.save-button.saved-success {
+    background-color: var(--status-on);
+}
+
+.error-text {
+    color: var(--status-off);
+    margin-top: 10px;
+    font-weight: bold;
+}

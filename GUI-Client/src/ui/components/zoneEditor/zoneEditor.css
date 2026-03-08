@@ -1,15 +1,111 @@
+/* --- TOP BAR (Stays fully rounded) --- */
 .zone-globals {
     display: flex;
     gap: 24px;
-    background-color: rgba(0, 0, 0, 0.07);
+    align-items: center;
+    background-color: var(--bg-surface);
     padding: 16px;
-    border-radius: 6px;
+    border-radius: 8px; /* Fully rounded */
     border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
     margin-bottom: 24px;
 }
-.zone-header > p {
-    font-size: var(--h5);
+
+.zone-globals.connected-card {
+    margin-bottom: 0; /* Reset global margin */
+    border-radius: 0 8px 8px 8px; /* Flat top-left to connect to the first tab */
+    position: relative;
+    z-index: 1; /* Sits underneath the active tab */
 }
+
+/* --- BOTTOM ACTION BAR (Flat top, rounded bottom) --- */
+.zone-func {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    background-color: var(--bg-surface);
+    padding: 16px;
+
+    /* 1. Flat top, rounded bottom corners! */
+    border-radius: 0 0 8px 8px;
+
+    border: 1px solid var(--border-color);
+
+    /* 2. Remove top margin so it touches the table */
+    margin-top: 0;
+    margin-bottom: 24px;
+
+    /* 3. Bring it to the front so it hides the table's bottom shadow */
+    position: relative;
+    z-index: 10;
+    box-shadow: var(--shadow-sm);
+}
+.zone-header {
+    display: flex;
+    justify-content: space-between; /* Pushes Title left, Buttons right */
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.zone-header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* Ensure the h2 doesn't have a bottom margin pushing it out of alignment */
+.zone-header h2 {
+    margin-bottom: 0;
+}
+
+/* --- FOLDER TAB SYSTEM --- */
+.zone-folder-container {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 24px;
+}
+
+.zone-tabs {
+    display: flex;
+    gap: 4px; /* Tiny gap between tabs */
+    position: relative;
+    z-index: 2; /* Sits ABOVE the card below */
+    margin-bottom: -1px; /* The Magic: Pulls it down to overlap the card's border */
+    overflow-x: auto; /* Just in case you have 20 zones, it will scroll horizontally */
+}
+
+.zone-tab {
+    padding: 12px 24px;
+    background-color: var(--border-color); /* Inactive tabs are grey/dimmed */
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    border-bottom: none; /* Let the overlap handle the bottom line */
+    border-radius: 8px 8px 0 0; /* Rounded top, flat bottom */
+    cursor: pointer;
+    font-size: var(--h6);
+    font-weight: 600;
+    font-family: var(--font-family);
+    min-width: 140px;
+    text-align: center;
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.zone-tab:hover {
+    background-color: #d1d5db; /* Slightly darker grey on hover */
+}
+
+/* THE ACTIVE TAB FUSION */
+.zone-tab.active {
+    background-color: var(--bg-surface); /* Matches the card color exactly */
+    color: var(--text-primary);
+    border-top: 2px solid var(--brand-blue); /* Nice accent line on top */
+    /* This overrides the bottom border of the card beneath it to make it look connected */
+    border-bottom: 1px solid var(--bg-surface);
+}
+
+/* --- ZONE INPUTS --- */
 .input-group {
     display: flex;
     flex-direction: column;
@@ -29,38 +125,48 @@
     border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-primary);
-    font-size: var(---text-primary);
+    font-size: var(--p);
     font-family: var(--font-family);
+    transition: border-color 0.2s ease;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
 }
 
 .table-container {
-    background: white;
-    border-radius: 8px; /* Smooth corners */
-    overflow: hidden; /* Keeps table corners from poking out */
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Horizontal, Vertical, Blur, Color */
-    margin: 20px 0;
-}
+    background-color: var(--bg-surface);
 
-/* Make the table fill the container */
+    /* 1. Rounded top, flat bottom corners! */
+    border-radius: 8px 8px 0 0;
+
+    border: 1px solid var(--border-color);
+    border-bottom: none; /* 2. Prevents a double-border line */
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+
+    /* 3. Remove bottom margin so it touches the function bar */
+    margin: 20px 0 0 0;
+}
 .zone-table {
     width: 100%;
-    border-collapse: collapse; /* Removes the double-border look */
+    border-collapse: collapse;
     table-layout: fixed;
 }
 
-/* Style the headers */
 .zone-table th {
     font-size: var(--h6);
     text-align: left;
     padding: 12px;
-    background-color: #f8f9fa;
-    border-bottom: 2px solid #dee2e6;
+    background-color: var(--bg-main); /* Uses global background */
+    border-bottom: 2px solid var(--border-color);
+    color: var(--text-muted);
 }
 
-/* Make inputs look like they belong in the table */
 .zone-table td {
     padding: 8px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .zone-table input,
@@ -68,25 +174,26 @@
     font-size: var(--bigger-p);
     width: 100%;
     padding: 6px;
-    border: 1px solid transparent; /* Hide border until hover/focus */
+    border: 1px solid transparent;
     background: transparent;
+    color: var(--text-primary);
+}
+
+.zone-table input:focus,
+.zone-table select:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    background-color: var(--bg-main);
+    border-radius: 4px;
 }
 
 .zone-table tr:hover {
-    background-color: #f1f1f1; /* Highlight the whole row on hover */
+    background-color: var(--bg-main); /* Replaced hardcoded #f1f1f1 */
 }
 
-.zone-func {
-    background-color: rgba(0, 0, 0, 0.07);
-    padding: 1rem 1rem;
-    margin: 1rem 0rem;
-    display: flex;
-    gap: 1rem;
-    border-radius: 6px;
-}
-
+/* --- ZONE BUTTONS --- */
 .zone-list {
-    padding: 6px 6px;
+    padding: 6px 12px;
     margin: 1rem 0;
     border-radius: 4px;
     background-color: var(--bg-main);
@@ -98,26 +205,62 @@
 }
 
 .btn-save {
-    width: 10rem;
-    color: var(--text-primary);
+    padding: 10px 20px;
+    background-color: var(--brand-primary); /* Use global green! */
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
 }
 
+.btn-add {
+    padding: 10px 20px;
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    background-color: var(--brand-blue); /* Use global green! */
+}
+
+.btn-save:hover {
+    opacity: 0.7;
+}
+
+.btn-add:hover {
+    opacity: 0.7;
+}
 .zone-table td:last-child {
     display: flex;
-    justify-content: flex-end; /* Pushes content to the right */
-    align-items: center; /* Keeps the button vertically centered */
+    justify-content: flex-end;
+    align-items: center;
 }
 
 .btn-delete {
-    background-color: #c1121f;
+    background-color: var(--status-off); /* Use global red! */
     color: white;
     border: none;
-    padding: 5px 10px;
+    padding: 10px 20px;
     margin-right: 1rem;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.2s ease;
 }
 
 .btn-delete:hover {
-    background-color: #780000;
+    opacity: 0.8;
+}
+
+[data-theme="dark"] .zone-table th {
+    background-color: color-mix(
+        in srgb,
+        var(--bg-surface),
+        white 3%
+    ); /* Uses global background */
+
+    color: var(--text-muted);
 }
