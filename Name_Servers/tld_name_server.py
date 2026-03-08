@@ -1,10 +1,6 @@
-import socket
-import threading
-import sys
-import yaml
 import argparse
 from pathlib import Path
-from dnslib import DNSRecord, QTYPE, RR, RCODE
+from dnslib import DNSRecord, QTYPE, RCODE
 from abstract_name_server import AbstractNameServer
 
 class LocalTLDServer(AbstractNameServer):

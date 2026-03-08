@@ -1,10 +1,5 @@
-import socket
-import threading
-import sys
 import argparse
-import yaml
-from pathlib import Path
-from dnslib import DNSRecord, QTYPE, RR, RCODE
+from dnslib import DNSRecord, QTYPE, RCODE
 from abstract_name_server import AbstractNameServer
 class LocalAuthServer(AbstractNameServer):
     def __init__(self, config_filename="auth_config.yaml", dnssec_enabled=False):

@@ -2,7 +2,6 @@ import socket
 import threading
 import sys
 import yaml
-import argparse
 from abc import ABC, abstractmethod
 from pathlib import Path
 from dnslib import RR

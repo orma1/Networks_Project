@@ -1,10 +1,6 @@
-import socket
-import threading
-import sys
-import yaml
 import argparse
 from pathlib import Path
-from dnslib import DNSRecord, QTYPE, RR, RCODE
+from dnslib import DNSRecord, QTYPE, RCODE
 from abstract_name_server import AbstractNameServer
 class LocalRootServer(AbstractNameServer):
     def __init__(self, config_filename="root_config.yaml", dnssec_enabled=False):
