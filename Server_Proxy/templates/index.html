@@ -6,78 +6,12 @@
     <title>StreamNode | Architecture Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
-    <style>
-        :root {
-            --bg: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --primary: #8b5cf6;
-            --secondary: #06b6d4;
-            --text: #f8fafc;
-        }
-
-        body { 
-            background: var(--bg); 
-            background-image: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%);
-            font-family: 'Inter', sans-serif; 
-            color: var(--text);
-            margin: 0;
-            min-height: 100vh;
-        }
-
-        .container { max-width: 1000px; margin: 0 auto; padding: 40px 20px; }
-
-        /* Architecture Visualizer Gadget */
-        .flow-container {
-            background: var(--card-bg);
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            backdrop-filter: blur(10px);
-        }
-
-        .node { text-align: center; flex: 1; }
-        .node i { font-size: 1.5rem; margin-bottom: 8px; display: block; color: var(--secondary); }
-        .node span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; }
-        .node b { display: block; font-size: 0.9rem; }
-
-        .arrow { color: var(--primary); font-size: 1.2rem; animation: slide 2s infinite; }
-        @keyframes slide {
-            0% { transform: translateX(-5px); opacity: 0.3; }
-            50% { opacity: 1; }
-            100% { transform: translateX(5px); opacity: 0.3; }
-        }
-
-        /* Video/Grid Styles */
-        .movie-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
-        .movie-card {
-            background: var(--card-bg); border-radius: 20px; padding: 25px;
-            border: 1px solid rgba(255,255,255,0.1); transition: 0.3s; text-align: left;
-        }
-        .movie-card:hover { transform: translateY(-5px); border-color: var(--primary); }
-
-        .btn-toggle {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white; border: none; padding: 12px 25px; border-radius: 12px;
-            font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;
-        }
-
-        .video-container { background: #000; border-radius: 24px; overflow: hidden; margin-top: 20px; border: 1px solid rgba(255,255,255,0.1); }
-        video { width: 100%; display: block; }
-        .playing-info { background: var(--card-bg); padding: 20px; display: flex; justify-content: space-between; align-items: center; }
-
-        .status-tag { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-    </style>
-</head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
 <body>
 
 <div class="container">
-    <header style="margin-bottom: 30px;">
-        <h1 style="font-size: 2rem;"><i class="fas fa-layer-group"></i> StreamNode <span style="font-weight: 300; opacity: 0.6;">Architecture</span></h1>
+    <header class="main-header">
+        <h1><i class="fas fa-layer-group"></i> StreamNode <span class="light">Architecture</span></h1>
     </header>
 
     <div class="flow-container">
@@ -87,8 +21,8 @@
             <b>Client User</b>
         </div>
         <div class="arrow"><i class="fas fa-long-arrow-alt-right"></i></div>
-        <div class="node" style="border: 1px dashed var(--primary); padding: 10px; border-radius: 10px;">
-            <i class="fas fa-server" style="color: var(--primary);"></i>
+        <div class="node proxy-node">
+            <i class="fas fa-server"></i>
             <span>Proxy Node</span>
             <b>Flask Middleware</b>
         </div>
@@ -100,14 +34,35 @@
         </div>
     </div>
 
-    <div style="display: flex; gap: 10px; margin-bottom: 30px;">
-        <div class="status-tag"><i class="fas fa-check-circle"></i> Protocol: {{ protocol }}</div>
-        <div class="status-tag" style="background: rgba(6, 182, 212, 0.1); color: var(--secondary); border-color: var(--secondary);">
-            <i class="fas fa-signal"></i> DASH: {{ quality }}
+    <div class="status-bar">
+        <div class="status-tag tag-success">
+            <i class="fas fa-check-circle"></i> Protocol: {{ protocol }}
+        </div>
+        <div id="quality-status" class="status-tag tag-info">
+            <i class="fas fa-signal"></i> DASH: 
+            <span id="current-quality-text">
+                {% if protocol == 'RUDP' %}
+                    {# Logic for when RUDP is active #}
+                    {% if selected_quality == 'auto' %}
+                        <i class="fas fa-magic"></i> Auto-Adaptive (RUDP)
+                    {% elif selected_quality == '1080' %}
+                        <i class="fas fa-video"></i> 1080p Ultra (RUDP)
+                    {% elif selected_quality == '720' %}
+                        <i class="fas fa-check-circle"></i> 720p High (RUDP)
+                    {% elif selected_quality == '480' %}
+                        <i class="fas fa-compress-arrows-alt"></i> 480p Low (RUDP)
+                    {% else %}
+                        <i class="fas fa-network-wired"></i> Custom (RUDP)
+                    {% endif %}
+                {% else %}
+                    {# Fallback for TCP #}
+                    <i class="fas fa-lock"></i> Fixed (TCP)
+                {% endif %}
+            </span>
         </div>
     </div>
 
-    <form action="/switch_protocol" method="POST" style="margin-bottom: 40px;">
+    <form action="/switch_protocol" method="POST" class="action-area">
         <button type="submit" class="btn-toggle">
             <i class="fas fa-exchange-alt"></i> Toggle Transport Protocol
         </button>
@@ -119,33 +74,36 @@
                 <source src="/stream/{{ video_file }}?force_quality={{ selected_quality }}" type="video/mp4">
             </video>
             <div class="playing-info">
-                <div style="text-align: left;">
-                    <h3 style="margin: 0;">{{ video_file }}</h3>
-                    <small style="color: #94a3b8;">Streaming from Remote Origin via {{ protocol }}</small>
+                <div class="video-meta">
+                    <h3>{{ video_file }}</h3>
+                    <p>Streaming from Remote Origin via {{ protocol }}</p>
                 </div>
                 
                 {% if protocol == 'RUDP' %}
-                <form action="/play/{{ video_file }}" method="GET">
-                    <select name="force_quality" onchange="this.form.submit()" style="background: #334155; color: white; border: 1px solid var(--primary); padding: 8px; border-radius: 8px;">
-                        <option value="auto" {% if selected_quality == 'auto' %}selected{% endif %}>Auto-Adaptive</option>
-                        <option value="1080" {% if selected_quality == '1080' %}selected{% endif %}>1080p Ultra</option>
-                        <option value="720" {% if selected_quality == '720' %}selected{% endif %}>720p High</option>
-                        <option value="480" {% if selected_quality == '480' %}selected{% endif %}>480p Low</option>
-                    </select>
+                <form action="/play/{{ video_file }}" method="GET" id="quality-form">
+                    <div class="select-wrapper">
+                        <select name="force_quality" class="quality-select" onchange="this.form.submit()">
+                            <option value="auto" {% if selected_quality == 'auto' %}selected{% endif %}>Auto-Adaptive</option>
+                            <option value="1080" {% if selected_quality == '1080' %}selected{% endif %}>1080p Ultra</option>
+                            <option value="720" {% if selected_quality == '720' %}selected{% endif %}>720p High</option>
+                            <option value="480" {% if selected_quality == '480' %}selected{% endif %}>480p Low</option>
+                        </select>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
                 </form>
                 {% endif %}
             </div>
         </div>
-        <br><a href="/" class="btn-toggle" style="background: #334155;">Return to Gallery</a>
+        <a href="/" class="btn-secondary">Return to Gallery</a>
 
     {% else %}
         <div class="movie-grid">
             {% for m in movies %}
             <div class="movie-card">
-                <i class="fas fa-play-circle" style="font-size: 1.5rem; color: var(--primary);"></i>
-                <h3 style="margin: 10px 0;">{{ m.name }}</h3>
-                <p style="font-size: 0.8rem; color: #94a3b8;">Multi-bitrate DASH stream available via proxy relay.</p>
-                <a href="/play/{{ m.file }}" class="btn-toggle" style="width: 100%; text-align: center; box-sizing: border-box;">Launch Stream</a>
+                <div class="card-icon"><i class="fas fa-play-circle"></i></div>
+                <h3>{{ m.name }}</h3>
+                <p>Multi-bitrate DASH stream available via proxy relay.</p>
+                <a href="/play/{{ m.file }}" class="btn-toggle full-width">Launch Stream</a>
             </div>
             {% endfor %}
         </div>
