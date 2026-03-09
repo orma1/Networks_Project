@@ -100,13 +100,13 @@ body,
 /* Optional: Auto-detect OS Dark Mode preferences */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-        --bg-main: #111827;
-        --bg-surface: #1f2937;
+        --bg-main: #131316;
+        --bg-surface: #26262c;
         --text-primary: #f9fafb;
-        --text-muted: #9ca3af;
-        --border-color: #374151;
-        --brand-primary: #34d399;
-        --brand-blue: #0496ff;
+        --text-muted: #d1d5db;
+        --border-color: #1c1c21;
+        --brand-primary: #059669;
+        --brand-blue: #027bce;
     }
 }
 

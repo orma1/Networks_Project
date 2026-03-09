@@ -188,7 +188,7 @@
 }
 
 .zone-table tr:hover {
-    background-color: var(--bg-main); /* Replaced hardcoded #f1f1f1 */
+    background-color: var(--bg-main);
 }
 
 /* --- ZONE BUTTONS --- */
@@ -263,4 +263,12 @@
     ); /* Uses global background */
 
     color: var(--text-muted);
+}
+
+[data-theme="dark"] .zone-tab:hover {
+    background-color: color-mix(
+        in srgb,
+        var(--bg-surface),
+        white 15%
+    ); /* Slightly darker grey on hover */
 }
