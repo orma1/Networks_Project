@@ -1,6 +1,10 @@
 $ORIGIN originserver.homelab.
 $TTL 86400
 
-@                   86400	IN	SOA 	ns1.originserver.homelab. admin.originserver.homelab. 2026030701 21600 3600 604800 86400
-@                   86400	IN	NS  	ns1.originserver.homelab.
-originserver        IN	A   	127.0.0.13
+@           IN  SOA  ns1.originserver.homelab. admin.originserver.homelab. 2026031001 21600 3600 604800 86400
+
+@           IN  NS  ns1.originserver.homelab.
+
+ns1         IN  A   127.0.0.5
+
+@           IN  A   127.0.0.13

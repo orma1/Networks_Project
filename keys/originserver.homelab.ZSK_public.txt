@@ -1,0 +1,5 @@
+Zone: originserver.homelab.
+Type: ZSK
+Flag: 256
+DNSKEY Base64:
+YIK45T3kSBEO0x9WJRS1Xp8jnPEHmvk06mYAYsRFzMx7Ymz30+Z/v1JbUK6X352NQx8HyrLUpcvoW55WPWh4Eg==

@@ -35,32 +35,49 @@
     </div>
 
     <div class="status-bar">
-        <div class="status-tag tag-success">
-            <i class="fas fa-check-circle"></i> Protocol: {{ protocol }}
-        </div>
-        <div id="quality-status" class="status-tag tag-info">
-            <i class="fas fa-signal"></i> DASH: 
-            <span id="current-quality-text">
-                {% if protocol == 'RUDP' %}
-                    {# Logic for when RUDP is active #}
-                    {% if selected_quality == 'auto' %}
-                        <i class="fas fa-magic"></i> Auto-Adaptive (RUDP)
-                    {% elif selected_quality == '1080' %}
-                        <i class="fas fa-video"></i> 1080p Ultra (RUDP)
-                    {% elif selected_quality == '720' %}
-                        <i class="fas fa-check-circle"></i> 720p High (RUDP)
-                    {% elif selected_quality == '480' %}
-                        <i class="fas fa-compress-arrows-alt"></i> 480p Low (RUDP)
-                    {% else %}
-                        <i class="fas fa-network-wired"></i> Custom (RUDP)
-                    {% endif %}
-                {% else %}
-                    {# Fallback for TCP #}
-                    <i class="fas fa-lock"></i> Fixed (TCP)
-                {% endif %}
-            </span>
-        </div>
+    <div class="status-tag tag-success">
+        <i class="fas fa-check-circle"></i> Protocol: {{ protocol }}
     </div>
+    
+    <div class="status-tag" style="background: rgba(6, 182, 212, 0.1); color: var(--secondary); border-color: var(--secondary);">
+        <i class="fas fa-signal"></i> DASH: 
+        <span id="current-quality-text">
+            {% if protocol == 'RUDP' %}
+                {% if selected_quality == 'auto' %}
+                    <i class="fas fa-magic"></i> Auto-Adaptive (RUDP)
+                {% elif selected_quality == '1080' %}
+                    <i class="fas fa-video"></i> 1080p Ultra (RUDP)
+                {% elif selected_quality == '720' %}
+                    <i class="fas fa-check-circle"></i> 720p High (RUDP)
+                {% elif selected_quality == '480' %}
+                    <i class="fas fa-compress-arrows-alt"></i> 480p Low (RUDP)
+                {% else %}
+                    Fixed (RUDP)
+                {% endif %}
+            {% else %}
+                <i class="fas fa-lock"></i> Fixed (TCP)
+            {% endif %}
+        </span>
+    </div>
+
+    <div class="status-tag" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #f59e0b;">
+        <i class="fas fa-dumpster-fire"></i> Loss: <span id="loss-val">{{ packet_loss }}</span>%
+    </div>
+</div>
+
+<div style="display: flex; gap: 20px; align-items: center; margin-bottom: 40px;">
+
+
+    <form action="/set_loss" method="POST" style="flex-grow: 1; background: var(--card-bg); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+        <label style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 5px;">Simulate Network Congestion (Packet Loss)</label>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <input type="range" name="loss_percent" min="0" max="50" value="{{ packet_loss }}" 
+                   style="flex-grow: 1; accent-color: var(--primary);"
+                   oninput="document.getElementById('loss-val').innerText = this.value">
+            <button type="submit" style="background: none; border: 1px solid var(--primary); color: white; border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 0.8rem;">Apply</button>
+        </div>
+    </form>
+</div>
 
     <form action="/switch_protocol" method="POST" class="action-area">
         <button type="submit" class="btn-toggle">

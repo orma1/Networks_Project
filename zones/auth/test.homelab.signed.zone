@@ -1,26 +1,26 @@
 $ORIGIN test.homelab.
 $TTL 86400
 
-@ IN TXT "DNSKEY|257|qLLQnLAvOOpZkry8NvCvE3gycDa2SxXJ7wc9w/4nd35WFk1ZRRaFUorZLN7b6nEMGaK/Rpv3TTOcppEvv4TTzQ=="
-@ IN TXT "DNSKEY|256|yVtq7NR+RgFiQEPLTvnlHeBzL7fG3AMPMs/C1rd0TsISTbE5xCobsWIYDMgXEzL0PFBDHH2ZC1xCrHL5s83mtA=="
-@ IN TXT "RRSIG|DNSKEY|257|MEQCIDPTrpY8vWXfM9Z6CdPkKoIBhea22KPvtcn/VRgvEo8qAiBm6SAzUJ6xoChXRpZi2HVA5penogzyfy9YGHjTji++pA=="
-@ IN TXT "RRSIG|DNSKEY|256|MEUCIQD7BBHDXDS2wigytEqv0j8z5qx2rOyo56s8r09w78e0WQIgf2WvKLOKGC8ltUwvycehs4ibqFghv/9szA5m+Y7QWFY="
+@ IN TXT "DNSKEY|257|nat5xrkuIt822xT/RrLErJLK+PUV/ZyWuhEN+WYygCW6VO13UHDcLWUVPWeOeWyKjiqQa0yg38hbUK9V8DeKbA=="
+@ IN TXT "DNSKEY|256|OgcQnGCSCmr/6PQB0euFaqxT9G/VPA18qZySWJZu6YuAK0Sa2JmbSXC3QFcdpHBPnJczu3BuzAF8Itq7foAGww=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCIGd8hpU4rPjn+pMiELAEjx0Zar0vP0hXmpPwUF5UKcbdAiEA3mSgZdk6Kr8slVkKnszZIq6iV77uX2LYAtsMWvo/V/I="
+@ IN TXT "RRSIG|DNSKEY|256|MEYCIQC07GkH6jfxnAVR1u1mp+4aFV1WG0HUKo50q+AJWy8eEAIhAPzSq4lF5yKWmlCTqITC8Zlx+hcJ6+D2n1ncAq+LfxBS"
 
 test.homelab.           86400   IN      SOA     ns1.test.homelab. admin.test.homelab. 2026022201 21600 3600 604800 86400
 test.homelab.           86400   IN      NS      ns1.test.homelab.
-test.homelab. IN TXT "RRSIG|NS|MEUCIBsCTaaDlc+xr+Qnd2TAKXl79h2ni8lpmsEd1DIUuCWyAiEA02Zqgx5F9GhNVz8GocN/GTqMtE4jjMFtRFDVL0qcFls="
+test.homelab. IN TXT "RRSIG|NS|MEQCIApQ5PI3nI9BE74ehejXVv+65BssokWvjtLptu4arur+AiA83LopB67JXacWWYVdpK2IbO8ZNf25jdPUEgMIBCxKtA=="
 
 ns1.test.homelab.       86400   IN      A       127.0.0.5
-ns1.test.homelab. IN TXT "RRSIG|A|MEQCIAnrA6UuKQkkJS4LXXztjbSi6C0/K57WQGQXWP+d7gRYAiATBcfs3Fwo54wKC65+p2FSxk5t1BCa/COg5UvVN8SxiA=="
+ns1.test.homelab. IN TXT "RRSIG|A|MEQCIDbIL+r8xwc31bTzYGSHbSuGh2oDqseHAYXDaFA68UQ0AiBJ8Y0Y89dZRis9y0wlFeOw4DOZ81QUQmXF1+nvSLlWTA=="
 
 server1.test.homelab.   86400   IN      A       192.168.1.100
-server1.test.homelab. IN TXT "RRSIG|A|MEQCIFmjq+CQcuA+WM2/PqDR7/UdwvTpWa+wIBasTB/0642YAiAvp9duIZsUT5Go+SNdGd2SQFUTC7a1jkUJZNvTlZDrkw=="
+server1.test.homelab. IN TXT "RRSIG|A|MEUCIQCdsrIvF6Xgi9+OIr1LQtaJN0AN/EnXexBtN+ilazFJ1AIgB1DqCTyKGmXjKWMQXkpVxGevCYYqKcG7GcZF5XFXOWY="
 
 server2.test.homelab.   86400   IN      A       192.168.1.101
-server2.test.homelab. IN TXT "RRSIG|A|MEUCIQDT+rfsGthUwlsatWPHGgEAOATT9gRGjCRMDXaWZNaPdwIga3DHbnBCfobqT/wOrHOEA8tbjgmTLDIR3dfF/wljqq4="
+server2.test.homelab. IN TXT "RRSIG|A|MEQCIBPdn7lI6fEbzj9U86L1L3lwi0AWmaZGVI38/ohDuYhtAiAJnEWtZ3sdRUbwMhNxrlq2rbiPJnNoNs9OKOpYesVJkQ=="
 
 blog.test.homelab.      86400   IN      CNAME   server1.test.homelab.
-blog.test.homelab. IN TXT "RRSIG|CNAME|MEQCIH1wkQSovemM3B6XemCKDxxYYuhau33bCSBkZE+hRDwyAiARaDkIkBhwBPURZly9iCpphMrtI3tg5eirJprmnso2HA=="
+blog.test.homelab. IN TXT "RRSIG|CNAME|MEQCIDZCYO7ER9W44qr/8z3qLDb6LdOdEmWS9BYxkh/Wzn8TAiAousTtl4IvbodRWTH04lw6zgAHPrd0g86Ltc79SqLLqw=="
 
 www.test.homelab.       86400   IN      CNAME   server1.test.homelab.
-www.test.homelab. IN TXT "RRSIG|CNAME|MEYCIQDSHPuAnWYfLNfGhW8mVQtcIqPDdY1o4uiuEHONsXDwuQIhAM9XtCwYWltf7ct21PpMtPKxFTjq3bY9j014jsrYr+32"
+www.test.homelab. IN TXT "RRSIG|CNAME|MEQCICy3l9GX3Si684KhiXjEaRrIuWecOf6Q5zt7uU9L+Dq1AiA/MLGbflF++2PyfgaPf+poMGqldY9TdE9GWkANKnnZAA=="

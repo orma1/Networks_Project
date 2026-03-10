@@ -2,4 +2,4 @@ Zone: .
 Type: ZSK
 Flag: 256
 DNSKEY Base64:
-cIKpWm6/hxvkkQX8y3LfSmDB3nm1vQS+ofSEXHR1siE/hX3tm6SHi/X3fw95hAc2+2So3FMl82c3eKBgtFKi2g==
+p5byJQWbf9IozIbf+goSpwfHPUD08OqyMfsvSKCTL5VexigYdpC7BxmHARaazQ4JgaMO6juM0zpZ8QIlM30CfQ==

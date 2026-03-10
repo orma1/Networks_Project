@@ -1,0 +1,5 @@
+Zone: originserver.homelab.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+KXSb8OWFAI7Lt/tRRGBxa1xOL+jwnm8DvNGOZ+h5FQl/M3+Oy21+QNZTF9Xt4SdQebe3LW9A+nJ8o9H2uf+svg==

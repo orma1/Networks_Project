@@ -1,0 +1,17 @@
+$ORIGIN originserver.homelab.
+$TTL 86400
+
+@ IN TXT "DNSKEY|257|KXSb8OWFAI7Lt/tRRGBxa1xOL+jwnm8DvNGOZ+h5FQl/M3+Oy21+QNZTF9Xt4SdQebe3LW9A+nJ8o9H2uf+svg=="
+@ IN TXT "DNSKEY|256|YIK45T3kSBEO0x9WJRS1Xp8jnPEHmvk06mYAYsRFzMx7Ymz30+Z/v1JbUK6X352NQx8HyrLUpcvoW55WPWh4Eg=="
+@ IN TXT "RRSIG|DNSKEY|257|MEUCICRI+Plyd9RL6LuUqJUNSsqdtF9KMtwD+lBF4/q6mYh7AiEAnFf/wWsx7lzRhK2kS5nkPOedzCemWAAOwR76Y7L2R9s="
+@ IN TXT "RRSIG|DNSKEY|256|MEUCIQCoC/rsgg8k5gKqyvFOvgP5AviJDIStmbcvKRX/eoz/GAIgUV0tD4fy631uDVad+4bGDydIfJ5deoPOtwgc1Timbp8="
+
+originserver.homelab.   86400   IN      SOA     ns1.originserver.homelab. admin.originserver.homelab. 2026031001 21600 3600 604800 86400
+originserver.homelab.   86400   IN      NS      ns1.originserver.homelab.
+originserver.homelab. IN TXT "RRSIG|NS|MEUCIQDqHtlbOkrVIv+yz8sNNF1hB4sudJauCPQ5x8pTgj+LggIgBpRry02CCgKy7Y9VIrOQa2EsgS8W7tvgV8yDp+ITD6E="
+
+ns1.originserver.homelab. 86400   IN      A       127.0.0.5
+ns1.originserver.homelab. IN TXT "RRSIG|A|MEQCIH42OXuh+TTlo9RHEsB1VTyZbBmNtuEDrq0EzwdkVOxCAiBWORpkrtVLrtmoYWNBQlZYXiABbmPpfX87Hni9piaGBg=="
+
+originserver.homelab.   86400   IN      A       127.0.0.13
+originserver.homelab. IN TXT "RRSIG|A|MEYCIQDNmlzq2Idt4mwQo14BhSRXcg695Pte8q2OGjQVt2PBlgIhANvzSxPchvQnQ6FLglpOANFIIo/km7egNI596AOHTCpZ"

@@ -50,8 +50,8 @@ def start_all(args):
         except Exception as e:
             print(f"[FATAL] Failed to start {name}: {e}")
         
-        # Give each server 0.5 seconds to bind to its port before starting the next
-        time.sleep(0.5)    
+        # Give each server 0.6 seconds to bind to its port before starting the next (After testing, this seems to be the sweet spot for reliability without unnecessary delay)
+        time.sleep(0.6)    
 
 def stop_all():
     print("\n" + "=" * 50)

@@ -1,8 +1,10 @@
 $ORIGIN homelab.
 $TTL 86400
 
-@                   IN	SOA 	tld.homelab. admin.homelab. 2026022201 1800 900 604800 86400
-test                IN	NS  	ns1.test.homelab.
-ns1.test.homelab.   IN	A   	127.0.0.5
-myproxy             IN	NS  	ns1.myproxy.homelab.
-ns1.myproxy.homelab. IN	A   	127.0.0.11
+@           IN  SOA  tld.homelab. admin.homelab. 2026031001 1800 900 604800 86400
+
+test                    IN  NS  ns1.test.homelab.
+ns1.test.homelab.       IN  A   127.0.0.5
+
+originserver            IN  NS  ns1.originserver.homelab.
+ns1.originserver.homelab. IN  A   127.0.0.5

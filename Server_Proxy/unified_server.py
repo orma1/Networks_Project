@@ -53,10 +53,13 @@ class UnifiedServer:
     def handle_tcp(self, conn, addr):
         try:
             data = conn.recv(1024).decode().split("|")
+            if data[0] == "DROP":
+                print(f"[TCP] Simulated Drop: {data[1]} at {data[2]} from {addr}")
+                return
             if data[0] == "REQ":
                 filename, byte_start = data[1], int(data[2])
                 file_path = os.path.join(VIDEO_DIR, filename)
-                print(f"[TCP] Request: {filename} from {byte_start} | Found: {os.path.exists(file_path)}")
+                # print(f"[TCP] Request: {filename} from {byte_start} | Found: {os.path.exists(file_path)}")
                 if os.path.exists(file_path):
                     with open(file_path, "rb") as f:
                         f.seek(byte_start)
@@ -87,7 +90,7 @@ class UnifiedServer:
 
     def handle_rudp(self, filename, addr, byte_start):
         file_path = os.path.join(VIDEO_DIR, filename)
-        print(f"[RUDP] Request: {filename} from {byte_start} | Found: {os.path.exists(file_path)}")
+        # print(f"[RUDP] Request: {filename} from {byte_start} | Found: {os.path.exists(file_path)}")
         if not os.path.exists(file_path): return
         
         send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -122,6 +125,9 @@ class UnifiedServer:
                 try:
                     for _ in range(int(cwd)):
                         ack_data, _ = send_sock.recvfrom(1024)
+                        if ack_data.startswith(b"DROP"):
+                            print(f"[RUDP] Simulated Drop: {ack_data.decode()} from {addr}")
+                            continue
                         if ack_data.startswith(b"ACK|"):
                             a_seq = int(ack_data.decode().split("|")[1])
                             if a_seq in window and not window[a_seq]["acked"]:
