@@ -82,6 +82,15 @@ class DHCPServer:
                 return self.client_to_ip[client_id]
             if self.available_reclaimed_ips:
                 return self.available_reclaimed_ips.pop(0)
+            if self.current_pool_ip in self.reservations:
+                # Skip reserved IPs in the pool
+                while self.current_pool_ip in self.reservations:
+                    octets = list(map(int, self.current_pool_ip.split('.')))
+                    if octets[3] < int(self.end_ip.split('.')[3]):
+                        octets[3] += 1
+                        self.current_pool_ip = ".".join(map(str, octets))
+                    else:
+                        return None
             
             # Simple IP increment logic
             octets = list(map(int, self.current_pool_ip.split('.')))
