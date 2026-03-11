@@ -67,6 +67,7 @@ tsconfig.tsbuildinfo
 # (Note: dist/ and build/ are already covered in the Python section)
 dist-electron/
 dist-react/
+dist/
 release/
 out/
 
