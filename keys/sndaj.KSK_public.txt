@@ -1,5 +1,0 @@
-Zone: sndaj.
-Type: KSK
-Flag: 257
-DNSKEY Base64:
-ysc8kSQJrVY/bWCvU1PoHMd1yD9LurS9qpcHYN1/J1hMYzjiPKCU+yHHbuzjlXw95xHWPcb1Vp9+qiLAK6Qbkg==

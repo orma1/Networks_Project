@@ -1,5 +1,0 @@
-Zone: sndaj.
-Type: ZSK
-Flag: 256
-DNSKEY Base64:
-x5KX/gnrPb0wZPV9txHniPHz7pczY1ft7hDbGL0aFWIyjZj3OiSxLPuZN52vdaS4+sdby1hsaAkKaDMWaLRFuw==
