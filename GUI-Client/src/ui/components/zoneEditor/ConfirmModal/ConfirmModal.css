@@ -1,0 +1,116 @@
+/* Popup.css */
+/* =========================================
+   BASE / LIGHT THEME (Using Global Vars)
+   ========================================= */
+
+/* The semi-transparent backdrop */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: color-mix(
+        in srgb,
+        var(--bg-overlay, black),
+        transparent 25%
+    );
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+/* The actual popup card */
+.modal-content {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    padding: 25px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 450px;
+    box-shadow: 0 10px 30px
+        color-mix(in srgb, var(--text-primary), transparent 80%);
+    border: 1px solid var(--border-color);
+}
+
+/* Header Text */
+.modal-content h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--text-heading);
+    font-size: 1.5rem;
+}
+
+/* Body Text */
+.modal-content p {
+    margin-bottom: 25px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+}
+
+/* Button Container */
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.btn-cancel {
+    background-color: var(
+        --text-muted
+    ); /* Clean light grey so it stands out from a white modal */
+    color: var(--bg-surface); /* Dark text for sharp contrast */
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+    background-color: #cccccc; /* Drops to the slightly darker grey you originally had on hover */
+    color: black; /* Dark text for sharp contrast */
+}
+.btn-delete {
+    transition: background-color 0.2s;
+}
+
+/* =========================================
+   DARK MODE OVERRIDES (The "Beautiful" Look)
+   ========================================= */
+
+[data-theme="dark"] .modal-overlay {
+    /* Darker overlay for better contrast */
+    background-color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="dark"] .modal-content {
+    background-color: #252526; /* Sleek dark grey background */
+    border: 1px solid #3e3e42; /* Subtle border for depth */
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .modal-content h3 {
+    color: #ffffff; /* Bright white for the header */
+}
+
+[data-theme="dark"] .modal-content p {
+    color: #cccccc; /* Light grey text for readability */
+}
+
+[data-theme="dark"] .btn-cancel {
+    background-color: #3e3e42;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .btn-cancel:hover {
+    /* Mix background with 20% white for a clean 'lift' */
+    background-color: color-mix(in srgb, #3e3e42, white 20%);
+}
+
+[data-theme="dark"] .btn-delete:hover {
+    /* Assuming btn-delete keeps its global red background, mix with 20% black for a natural 'press' shadow */
+    background-color: color-mix(in srgb, currentColor, black 20%);
+}

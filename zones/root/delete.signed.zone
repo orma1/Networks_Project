@@ -1,0 +1,11 @@
+$ORIGIN delete.
+$TTL 86400
+
+@ IN TXT "DNSKEY|257|KvOq2ioijrfsmqtjTyzMrIoyjKKz65wTfZL/TdbGvE9mLm3jt/MTT/95a+jQPml1K0ogc0NQ792pdP4KXT3+sQ=="
+@ IN TXT "DNSKEY|256|hS3haCiy5pfDlgguI6viT7qq/Prkku9dQG4I2r3YWUIi9dlSMTMqAoIC2Q4XaX/VekMPTy8mOAs+FNNkcfKtbQ=="
+@ IN TXT "RRSIG|DNSKEY|257|MEYCIQC98kgU+D5ICH9HJkGP1ci4ZzcFE0dkjRCEJtAz6e1cNAIhAOngUFmudLZ5TmLk59JrE1ByxI0bvZZfb7QHSpkl3LQq"
+@ IN TXT "RRSIG|DNSKEY|256|MEQCIB75nP0r836csvTPxSHs4YRljZUnc3C1vfctGORnqc6tAiAefVA+Hfi0m2FhCqHUamJnrf3G6jEzjfqB9+aXBkvgVA=="
+
+delete.                 86400   IN      SOA     ns1.delete. admin.delete. 2026031101 21600 3600 604800 86400
+delete.                 86400   IN      NS      ns1.delete.
+delete. IN TXT "RRSIG|NS|MEUCIQCCnuA4n8DjTQpjnNekbqvcUFk9ZWNusbk9nn6ghLjz1AIgE5nu/seNEwSk0ThtRd6dsmU9ZCJvFanQvCJ2n4LG4Ss="

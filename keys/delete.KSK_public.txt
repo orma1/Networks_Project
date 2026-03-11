@@ -1,0 +1,5 @@
+Zone: delete.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+KvOq2ioijrfsmqtjTyzMrIoyjKKz65wTfZL/TdbGvE9mLm3jt/MTT/95a+jQPml1K0ogc0NQ792pdP4KXT3+sQ==
