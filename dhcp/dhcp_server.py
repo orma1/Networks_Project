@@ -1,10 +1,13 @@
+from pathlib import Path
 import socket, yaml, time, threading, json, os, sys, queue
 from scapy.all import *
 
 # DHCP Server Implementation with Lease Management, Reservations, and Persistence
 class DHCPServer:
     def __init__(self):
-        with open('configs/dhcp_config.yaml', 'r') as f:
+        self.project_root = Path(__file__).resolve().parent.parent
+        self.config_path = self.project_root / "dhcp" / "configs" / "dhcp_config.yaml"
+        with open(self.config_path, 'r') as f:
             self.conf = yaml.safe_load(f)['dhcp_server']
         self.PORT_S, self.running = 6700, True
         self.lock, self.work_queue = threading.Lock(), queue.Queue()

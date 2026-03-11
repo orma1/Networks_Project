@@ -15,13 +15,13 @@ from pathlib import Path
 
 # 1. Path Resolution for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # 2. Clean Import
-from dnssec_tools.keygen import generate_zone_keys 
-from dnssec_tools.zone_signer import sign_zone
+from DNS.dnssec_tools.keygen import generate_zone_keys 
+from DNS.dnssec_tools.zone_signer import sign_zone
 
 # ==========================================
 # 0. SETUP & PATHS

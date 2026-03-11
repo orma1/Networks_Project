@@ -2,7 +2,12 @@ import time
 import signal
 import sys
 import argparse
-from api_server import APIServer
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+from DNS.api_server import APIServer
 from config_loader import ConfigLoader
 from resolver import Resolver
 

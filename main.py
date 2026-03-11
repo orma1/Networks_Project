@@ -6,10 +6,10 @@ import signal
 import argparse
 # Define the paths to your individual server launchers
 SERVICES = [
-    {"name": "Root Server", "path": "Name_Servers/root_name_server.py"},
-    {"name": "TLD Server", "path": "Name_Servers/tld_name_server.py"},
-    {"name": "Auth Server", "path": "Name_Servers/auth_name_server.py"},
-    {"name": "Resolver", "path": "resolver/manager.py"} 
+    {"name": "Root Server", "path": "DNS/Name_Servers/root_name_server.py"},
+    {"name": "TLD Server", "path": "DNS/Name_Servers/tld_name_server.py"},
+    {"name": "Auth Server", "path": "DNS/Name_Servers/auth_name_server.py"},
+    {"name": "Resolver", "path": "DNS/resolver/manager.py"} 
 ]
 
 # Keep track of running processes
