@@ -12,7 +12,7 @@ function Cleanup {
 
 # 1. DHCP & Main Infrastructure
 Write-Host "[1/3] Starting DHCP and Main..." -ForegroundColor Cyan
-$processes += Start-Process python -ArgumentList "dhcp_server.py" -PassThru -NoNewWindow
+$processes += Start-Process python -ArgumentList "dhcp/dhcp_server.py" -PassThru -NoNewWindow
 $processes += Start-Process python -ArgumentList "main.py" -PassThru -NoNewWindow
 Start-Sleep -Seconds 2
 
