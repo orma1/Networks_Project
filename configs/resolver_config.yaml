@@ -1,27 +1,17 @@
-# DNS Resolver Configuration
 server:
-  bind_ip: "127.0.0.2"
+  bind_ip: 127.0.0.2
   bind_port: 53
   buffer_size: 4096
-
 upstream:
-  # Root Server (Local)
-  root_server_ip: "127.0.0.3"
+  root_server_ip: 127.0.0.3
   root_server_port: 53
-  
-  # Public DNS (Google/Cloudflare) for fallback
-  public_forwarder: "8.8.8.8"
+  public_forwarder: 8.8.8.8
   public_port: 53
-
 behavior:
   default_ttl: 60
   timeout: 2.0
   enable_logging: true
-
-# Cache settings
 storage:
-  # Where to save the cache dump. 
-  # This path will be relative to the project root.
-  cache_file: "resolver/data/dns_cache.db"
+  cache_file: resolver/data/dns_cache.db
   save_interval: 10
   cache_capacity: 1000

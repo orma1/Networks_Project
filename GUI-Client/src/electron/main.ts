@@ -8,14 +8,18 @@ import {
   registerZoneHandlers,
   startWatchdog,
 } from "./ApiManager.js";
-// import { get_data, get_data_interval } from "./ApiManager.js";
 
 app.on("ready", () => {
   const mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    show: false,
     webPreferences: {
       preload: getPreloadPath(),
     },
   });
+  mainWindow.maximize();
+  mainWindow.show();
 
   if (isDev()) {
     mainWindow.loadURL("http://localhost:5123");
@@ -25,10 +29,7 @@ app.on("ready", () => {
 
   mainWindow.webContents.on("did-finish-load", async () => {
     console.log("[Backend] Frontend is ready. Sending data...");
-    // get_data(mainWindow);
 
-    // If you want to start your interval loop, you can do it here too:
-    //get_data_interval(mainWindow);
     startWatchdog(mainWindow);
     registerZoneHandlers();
     if (isDev()) {

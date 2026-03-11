@@ -278,20 +278,23 @@ export default function ConfigEditor({ nameServer }: ConfigEditorProps) {
                 }
               />
             </label>
-            <label className="config-label">
+            <div className="config-label">
               Enable Logging:
-              <input
-                type="checkbox"
-                className="config-input"
-                checked={
-                  (config as ResolverConfigFormat).behavior.enable_logging ||
-                  false
-                }
-                onChange={(e) =>
-                  updateBehavior("enable_logging", e.target.checked)
-                }
-              />
-            </label>
+              <button
+                type="button" // Prevents the button from acting like a submit button
+                className={`toggle-button ${(config as ResolverConfigFormat).behavior.enable_logging ? "is-true" : "is-false"}`}
+                onClick={() => {
+                  const currentValue =
+                    (config as ResolverConfigFormat).behavior.enable_logging ||
+                    false;
+                  updateBehavior("enable_logging", !currentValue);
+                }}
+              >
+                {(config as ResolverConfigFormat).behavior.enable_logging
+                  ? "True"
+                  : "False"}
+              </button>
+            </div>
           </div>
         )}
 
