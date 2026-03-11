@@ -13,6 +13,7 @@ class Resolver:
         """ Receives the config object from the Manager """
         self.dnssec_enabled = dnssec_enabled
         self.config = config
+        
         self.cache = DNSCache(
             filename=self.config.cache_file_path,
             capacity=self.config.cache_capacity,
@@ -23,6 +24,9 @@ class Resolver:
         self.forwarder = Forwarder(timeout=self.config.timeout)
         self.running = False
         self.server_socket = None
+        self.cache_lock = threading.Lock()
+        self.in_flight_queries = set()
+        self.lock = threading.Lock()
 
     # --- NEW HELPER: Detect Client's DO Bit ---
     def wants_dnssec(self, request):
@@ -145,24 +149,18 @@ class Resolver:
         return error_reply.pack(), None
 
     def _handle_cache_lookup(self, request, qname, qtype, wants_dnssec, addr, socket_ref):
-        """Checks cache, safely clones object, strips if needed, and returns True if handled."""
-        cached_response = self.cache.get(qname, qtype)
-        if cached_response:
-            print(f"[CACHE HIT] {qname}")
-            
-            # --- THE FIX: Clone the packet to prevent memory reference race conditions ---
-            reply = DNSRecord.parse(cached_response.pack())
-            
-            reply.header.id = request.header.id
-            reply.header.aa = 0 
-            
-            # Filter bloated keys if the client didn't explicitly ask for them
-            if not wants_dnssec:
-                self.strip_dnssec_records(reply)
-                
-            socket_ref.sendto(reply.pack(), addr)
-            return True
-        return False
+            # 2. PROTECT CACHE READS
+            with self.cache_lock:
+                cached_response = self.cache.get(qname, qtype)
+                if cached_response:
+                    reply = DNSRecord.parse(cached_response.pack())
+                    reply.header.id = request.header.id
+                    reply.header.aa = 0 
+                    if not wants_dnssec:
+                        self.strip_dnssec_records(reply)
+                    socket_ref.sendto(reply.pack(), addr)
+                    return True
+            return False
 
     def _fetch_upstream(self, request, qname):
         upstream_data, auth_ip = self._resolve_iterative(request, qname)
@@ -205,17 +203,24 @@ class Resolver:
                 dnskey_cache=self.dnskey_cache, ds_cache=self.ds_cache
             )
             
-            if not is_secure:
-                print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
-                error_reply = request.reply()
-                error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
-                socket_ref.sendto(error_reply.pack(), addr)
-                return None 
-                
-            return True
-        else:
-            print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
-            return False
+        with self.cache_lock:
+            if target_ip_ans and rrsig_b64:
+                is_secure = DNSSECValidator.verify_dnssec_chain(
+                    domain=actual_record_name, qtype_str="A", rdata_str=target_ip_ans, 
+                    signature_b64=rrsig_b64, auth_ip=auth_ip, bind_ip=self.config.bind_ip,
+                    dnskey_cache=self.dnskey_cache, ds_cache=self.ds_cache
+                )
+        
+                if not is_secure:
+                    print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
+                    error_reply = request.reply()
+                    error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
+                    socket_ref.sendto(error_reply.pack(), addr)
+                    return None 
+                return True
+            else:
+                print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
+                return False
 
     def _finalize_and_reply(self, real_reply, qname, qtype, is_secure, wants_dnssec, addr, socket_ref):
         """Sets final flags, updates the cache, and sends the packet back to the client."""
@@ -227,6 +232,11 @@ class Resolver:
         else:
             real_reply.header.ad = 0
 
+        with self.cache_lock:
+            if real_reply.header.rcode == 0:
+                cache_clone = DNSRecord.parse(real_reply.pack())
+                self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))
+
         # 1. Store the fully bloated, signed record in cache by creating a clone
         if real_reply.header.rcode == 0:
             cache_clone = DNSRecord.parse(real_reply.pack())
@@ -235,11 +245,18 @@ class Resolver:
         # 2. Filter the record right before returning it to the user
         if not wants_dnssec:
             self.strip_dnssec_records(real_reply)
-
         socket_ref.sendto(real_reply.pack(), addr)
 
+        
+
+        
+
     def handle_query(self, data, addr, socket_ref):
+        print(f"[DEBUG] Thread {threading.get_ident()} started processing {addr}")
+
+        
         try:
+            
             request = DNSRecord.parse(data)
             if request.header.qr == 1:
                 print("[WARNING] Received a DNS response on the resolver. Ignoring.")
@@ -247,6 +264,12 @@ class Resolver:
 
             qname = str(request.q.qname)
             qtype = request.q.qtype
+
+            with self.lock:
+                if qname in self.in_flight_queries:
+                    print(f"[DEBUG] Dropping duplicate request for {qname}")
+                    return # Ignore this packet
+                self.in_flight_queries.add(qname)
             
             # Identify if client explicitly asked for DNSSEC
             client_wants_dnssec = self.wants_dnssec(request)
