@@ -8,7 +8,7 @@ VIDEO_DIR = os.path.join(BASE_DIR, 'videos')
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, '..'))
 sys.path.append(PARENT_DIR)
 
-from dhcp_helper import VirtualNetworkInterface
+from dhcp.dhcp_helper import VirtualNetworkInterface
 
 app = Flask(__name__)
 MY_IP, WEB_SERVER_ADDR = None, None

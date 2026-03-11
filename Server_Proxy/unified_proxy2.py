@@ -54,8 +54,8 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 VIDEO_DIR  = os.path.join(BASE_DIR, "videos")
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 sys.path.append(PARENT_DIR)
-
-from dhcp_helper import VirtualNetworkInterface  # project DHCP stage
+sys.path.append(os.path.join(PARENT_DIR, "dhcp"))  # for DHCP helper module
+from dhcp.dhcp_helper import VirtualNetworkInterface  # project DHCP stage
 
 
 
