@@ -1,4 +1,3 @@
-
 import socket
 import threading
 
@@ -21,18 +20,45 @@ class Resolver:
         )
         self.dnskey_cache = {}
         self.ds_cache = {}
-        self.forwarder = Forwarder(local_ip=self.config.bind_ip, timeout=self.config.timeout)
+        self.forwarder = Forwarder(timeout=self.config.timeout)
         self.running = False
         self.server_socket = None
+
+    # --- NEW HELPER: Detect Client's DO Bit ---
+    def wants_dnssec(self, request):
+        """Checks the EDNS0 OPT record to see if the client requested DNSSEC (DO bit)."""
+        for rr in request.ar:
+            if rr.rtype == getattr(QTYPE, 'OPT'):
+                # The DO bit is the highest bit (0x8000) of the 32-bit TTL field
+                if (rr.ttl & 0x8000) != 0:
+                    return True
+        return False
+
+    # --- NEW HELPER: Strip bloated records ---
+    def strip_dnssec_records(self, reply):
+        """Strips custom DNSSEC TXT records from the reply payload."""
+        def is_dnssec_txt(rr):
+            if rr.rtype == getattr(QTYPE, 'TXT'):
+                try:
+                    txt_val = b"".join(rr.rdata.data).decode('utf-8').strip('"')
+                    if txt_val.startswith(("RRSIG|", "DNSKEY|", "DS|")):
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        reply.rr = [rr for rr in reply.rr if not is_dnssec_txt(rr)]
+        reply.auth = [rr for rr in reply.auth if not is_dnssec_txt(rr)]
+        reply.ar = [rr for rr in reply.ar if not is_dnssec_txt(rr)]
 
     def _resolve_iterative(self, request, target_domain):
         current_ip = self.config.root_server_ip
         current_port = self.config.root_server_port
-        visited_ips = set() # [EDGE CASE 7] Loop Detection
+        visited_ips = set() 
         
         qtype = request.q.qtype
 
-        for jump in range(10): # Cap at 10 jumps
+        for jump in range(10): 
             if current_ip in visited_ips:
                 print(f"    [ERROR] Routing loop detected at {current_ip}. Aborting.")
                 break
@@ -44,23 +70,23 @@ class Resolver:
                 raw_response = self.forwarder.send_query(current_ip, current_port, request.pack())
                 response = DNSRecord.parse(raw_response)
                 
-                # [EDGE CASE 2 & 12] Distinguish RCODEs properly
                 if response.header.rcode != getattr(RCODE, 'NOERROR'):
                     rcode_val = response.header.rcode
                     if rcode_val == getattr(RCODE, 'NXDOMAIN'):
                         print(f"    [*] NXDOMAIN from {current_ip}. Domain does not exist.")
+                        if jump == 0:
+                            return None,None
                         return raw_response, current_ip
                     elif rcode_val in (getattr(RCODE, 'SERVFAIL'), getattr(RCODE, 'REFUSED')):
                         print(f"    [*] Server {current_ip} returned {RCODE.get(rcode_val)}.")
                         if jump == 0:
                             print("    [*] Local Root failed. Triggering public fallback.")
                             return None, None
-                        break # Abort current path
+                        break 
                     else:
                         print(f"    [*] Server {current_ip} returned unexpected error: {rcode_val}.")
                         return raw_response, current_ip
                 
-                # [EDGE CASE 1 & 6] We got an Answer, but is it the right one?
                 if len(response.rr) > 0:
                     has_exact_match = any(rr.rtype == qtype for rr in response.rr)
                     has_cname = any(rr.rtype == getattr(QTYPE, 'CNAME') for rr in response.rr)
@@ -75,13 +101,11 @@ class Resolver:
                         print(f"    [*] Answer section present, but QTYPE mismatch.")
                         return raw_response, current_ip
                 
-                # [EDGE CASE 9] Authority-SOA NODATA Handling
                 has_soa = any(auth_rr.rtype == getattr(QTYPE, 'SOA') for auth_rr in response.auth)
                 if len(response.rr) == 0 and has_soa:
                     print(f"    [*] Authoritative NODATA (SOA) received. Record type does not exist.")
                     return raw_response, current_ip
 
-                # [EDGE CASE 3] Delegation
                 has_ns_delegation = any(auth_rr.rtype == getattr(QTYPE, 'NS') for auth_rr in response.auth)
                 
                 if has_ns_delegation:
@@ -95,7 +119,6 @@ class Resolver:
                                     self.ds_cache[child_domain] = ds_hash
                                     print(f"    [+] DNSSEC: Captured DS hash for {child_domain}.")
                     
-                    # [EDGE CASE 5] Extract ALL available IPs, but we'll try the first one for now
                     glue_ips = [str(ar.rdata) for ar in response.ar if ar.rtype == getattr(QTYPE, 'A')]
                     
                     if glue_ips:
@@ -104,57 +127,55 @@ class Resolver:
                         current_ip = next_ip
                         continue
                     else:
-                        # [EDGE CASE 4] Delegation without glue
                         print("    [ERROR] Delegation missing glue record. Recursive glue lookup not implemented.")
                         break
                         
-            # [EDGE CASE 3] Distinguish specific network failures
             except socket.timeout:
                 print(f"    [ERROR] Timeout communicating with {current_ip}.")
                 if jump == 0:
-                    return None, None # Fallback to public if root is dead
+                    return None, None 
                 break
             except Exception as e:
                 print(f"    [ERROR] Packet parsing/iteration failed at {current_ip}: {e}")
                 break
                 
         print("    [ERROR] Resolution failed (Max jumps, loops, or missing data).")
-        # [EDGE CASE 10] Preserve original request ID and QR flag
         error_reply = request.reply()
         error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
         return error_reply.pack(), None
 
-    def _handle_cache_lookup(self, request, qname, qtype, addr, socket_ref):
-        """Checks the cache and sends the reply if found. Returns True if handled."""
+    def _handle_cache_lookup(self, request, qname, qtype, wants_dnssec, addr, socket_ref):
+        """Checks cache, safely clones object, strips if needed, and returns True if handled."""
         cached_response = self.cache.get(qname, qtype)
         if cached_response:
             print(f"[CACHE HIT] {qname}")
-            reply = cached_response
+            
+            # --- THE FIX: Clone the packet to prevent memory reference race conditions ---
+            reply = DNSRecord.parse(cached_response.pack())
+            
             reply.header.id = request.header.id
-            reply.header.aa = 0 # Cache is not authoritative
+            reply.header.aa = 0 
+            
+            # Filter bloated keys if the client didn't explicitly ask for them
+            if not wants_dnssec:
+                self.strip_dnssec_records(reply)
+                
             socket_ref.sendto(reply.pack(), addr)
             return True
         return False
 
     def _fetch_upstream(self, request, qname):
-        """Handles local iterative routing and public fallback. Returns (reply_record, auth_ip)."""
         upstream_data, auth_ip = self._resolve_iterative(request, qname)
-        
         if upstream_data is None:
             target_ip = self.config.public_forwarder
             target_port = getattr(self.config, 'public_port', 53)
             print(f"[*] Forwarding to Public DNS ({target_ip})...")
             upstream_data = self.forwarder.send_query(target_ip, target_port, request.pack())
-            auth_ip = None # No direct auth IP if we used a public forwarder
-            
+            auth_ip = None 
         return DNSRecord.parse(upstream_data), auth_ip
 
     def _validate_dnssec(self, request, real_reply, qname, auth_ip, addr, socket_ref):
-        """
-        Determines if validation is needed, extracts signatures, and runs the crypto.
-        Returns True (Secure), False (Insecure), or None (Aborted/SERVFAIL sent).
-        """
-        client_requested_dnssec = any(ar.rtype == getattr(QTYPE, 'OPT') and (ar.ttl & 0x8000) for ar in request.ar)
+        client_requested_dnssec = self.wants_dnssec(request)
         checking_disabled = (request.header.cd == 1)
         should_validate = (getattr(self, 'dnssec_enabled', False) or client_requested_dnssec) and not checking_disabled
 
@@ -164,7 +185,7 @@ class Resolver:
             return False
 
         if auth_ip is None:
-            return False # Hard to validate public forwarder without building full chain from root
+            return False 
 
         target_ip_ans, rrsig_b64, actual_record_name = None, None, qname 
 
@@ -189,29 +210,32 @@ class Resolver:
                 error_reply = request.reply()
                 error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
                 socket_ref.sendto(error_reply.pack(), addr)
-                return None # Signal main loop to abort
+                return None 
                 
             return True
         else:
             print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
             return False
 
-    def _finalize_and_reply(self, real_reply, qname, qtype, is_secure, addr, socket_ref):
+    def _finalize_and_reply(self, real_reply, qname, qtype, is_secure, wants_dnssec, addr, socket_ref):
         """Sets final flags, updates the cache, and sends the packet back to the client."""
         real_reply.header.aa = 0
         real_reply.header.ra = 1 
         
-        # Set the AD (Authentic Data) Flag
         if real_reply.header.rcode == 0 and is_secure:
             real_reply.header.ad = 1
         else:
             real_reply.header.ad = 0
 
-        # Only cache successful responses (NOERROR)
+        # 1. Store the fully bloated, signed record in cache by creating a clone
         if real_reply.header.rcode == 0:
-            self.cache.put(qname, qtype, real_reply, getattr(self.config, 'default_ttl', 60))    
+            cache_clone = DNSRecord.parse(real_reply.pack())
+            self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))    
         
-        # Send the final reply
+        # 2. Filter the record right before returning it to the user
+        if not wants_dnssec:
+            self.strip_dnssec_records(real_reply)
+
         socket_ref.sendto(real_reply.pack(), addr)
 
     def handle_query(self, data, addr, socket_ref):
@@ -224,9 +248,12 @@ class Resolver:
             qname = str(request.q.qname)
             qtype = request.q.qtype
             
+            # Identify if client explicitly asked for DNSSEC
+            client_wants_dnssec = self.wants_dnssec(request)
+
             # --- STEP 1: CACHE LOOKUP ---
-            if self._handle_cache_lookup(request, qname, qtype, addr, socket_ref):
-                return # Successfully served from cache!
+            if self._handle_cache_lookup(request, qname, qtype, client_wants_dnssec, addr, socket_ref):
+                return 
 
             print(f"[CACHE MISS] Resolving {qname}...")
 
@@ -235,14 +262,13 @@ class Resolver:
                 real_reply, auth_ip = self._fetch_upstream(request, qname)
                 
                 # --- STEP 3: DNSSEC VALIDATION ---
-                # Returns True (Secure), False (Insecure/Bypassed), or None (Validation Failed/Aborted)
                 is_secure = self._validate_dnssec(request, real_reply, qname, auth_ip, addr, socket_ref)
                 
                 if is_secure is None:
-                    return # Packet dropped due to BOGUS signature. SERVFAIL already sent.
+                    return # Packet dropped due to BOGUS signature.
 
                 # --- STEP 4: CACHE & REPLY ---
-                self._finalize_and_reply(real_reply, qname, qtype, is_secure, addr, socket_ref)
+                self._finalize_and_reply(real_reply, qname, qtype, is_secure, client_wants_dnssec, addr, socket_ref)
 
             except socket.timeout:
                 print(f"[TIMEOUT] Upstream server did not respond.")
@@ -252,34 +278,20 @@ class Resolver:
         except Exception as e:
             print(f"[ERROR] Handling packet: {e}")
 
-
     def _listening_loop(self):
-        """
-        The Dedicated Listener Thread.
-        Only job: Wait for packets and spawn workers.
-        """
         print(f"[*] Listener thread started on {self.config.bind_ip}:{self.config.bind_port}")
-        
         while self.running:
             try:
                 data, addr = self.server_socket.recvfrom(self.config.buffer_size)
-                # Spawn a worker thread to handle the specific logic
                 worker = threading.Thread(target=self.handle_query, args=(data, addr, self.server_socket))
                 worker.daemon = True
                 worker.start()
-                
             except OSError:
-                # Socket was closed during shutdown
                 break
             except Exception as e:
                 print(f"[ERROR] Listener loop: {e}")
 
-    
-
     def start(self):
-        """
-        Main entry point. Sets up the socket and starts the listener thread.
-        """
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -288,23 +300,16 @@ class Resolver:
             self.server_socket.bind((self.config.bind_ip, self.config.bind_port))
             self.running = True
 
-
-            # Start the Listener in a SEPARATE thread
             listener_thread = threading.Thread(target=self._listening_loop)
-            listener_thread.daemon = True # Dies when main thread dies
+            listener_thread.daemon = True
             listener_thread.start()
 
         except OSError as e:
             print(f"[FATAL] Could not bind port: {e}")
 
     def stop(self):
-        """Clean shutdown to ensure cache saves."""
         self.running = False
-        
-        # Save Cache
         if hasattr(self, 'cache'):
             self.cache.stop()
-        
-        # Close socket to unblock the listener thread
         if self.server_socket:
             self.server_socket.close()
