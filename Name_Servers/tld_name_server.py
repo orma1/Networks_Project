@@ -61,5 +61,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dnssec', action='store_true')
     args = parser.parse_args()
-    tld = LocalTLDServer(dnssec_enabled=args)
+    tld = LocalTLDServer(dnssec_enabled=args.dnssec)
     tld.start()

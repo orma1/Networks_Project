@@ -1,7 +1,3 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Optional, Union
 import subprocess
 import os
 import threading
@@ -9,6 +5,23 @@ import uvicorn
 import ipaddress 
 import traceback
 import yaml
+import sys
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import List, Optional, Union
+from pathlib import Path
+
+# 1. Path Resolution for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# 2. Clean Import
+from dnssec_tools.keygen import generate_zone_keys 
+from dnssec_tools.zone_signer import sign_zone
 
 # ==========================================
 # 0. SETUP & PATHS
@@ -17,7 +30,7 @@ app = FastAPI(title="DNS Resolver API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows Electron and Swagger to connect from anywhere
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,6 +41,8 @@ if os.path.exists(os.path.join(CURRENT_DIR, "zones")):
     ZONE_DIR = os.path.join(CURRENT_DIR, "zones")
 else:
     ZONE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "zones"))
+
+CONFIG_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "configs"))
 
 # ==========================================
 # 1. PYDANTIC MODELS
@@ -49,7 +64,7 @@ class ARecordUpdate(BaseModel):
     name: str
     ip: str
     ttl: Optional[int] = None
-# --- 1. CONFIGURATION SCHEMAS ---
+
 class ServerSection(BaseModel):
     bind_ip: str
     bind_port: int
@@ -84,34 +99,12 @@ class ResolverConfig(BaseModel):
     behavior: ResolverBehaviorSection
     storage: ResolverStorageSection
 
-# Union allows FastAPI to accept either schema depending on the payload
 ConfigPayload = Union[ResolverConfig, NameServerConfig]
-
-# --- 2. PATH RESOLUTION ---
-# api_server.py is in /resolver/, so we go up one level to /configs/
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "configs"))
 
 # ==========================================
 # 2. HELPER FUNCTIONS
 # ==========================================
-def find_zone_file(server_name: str) -> str:
-    target_filename = f"{server_name.lower()}.zone"
-    
-    # Check if it's directly in the zones folder first
-    direct_path = os.path.join(ZONE_DIR, target_filename)
-    if os.path.exists(direct_path):
-        return direct_path
-
-    # If not, scan the subdirectories (auth, root, tld)
-    for root_dir, _, files in os.walk(ZONE_DIR):
-        if target_filename in files:
-            return os.path.join(root_dir, target_filename)
-            
-    return None
-
 def validate_dns_records(records: List[DnsRecord]):
-    """Strictly validates DNS records to prevent BIND/Resolver crashes."""
     for idx, rec in enumerate(records):
         rtype = rec.type.upper()
         data = rec.data.strip()
@@ -132,7 +125,6 @@ def validate_dns_records(records: List[DnsRecord]):
                 for num_part in parts[2:]:
                     if not num_part.isdigit():
                         raise ValueError(f"SOA timers/serials must be numbers. Found: '{num_part}'")
-                        
         except ipaddress.AddressValueError:
             raise ValueError(f"Row {idx + 1} (Name: {name}): Invalid {rtype} address format -> '{data}'")
         except ValueError as e:
@@ -143,25 +135,19 @@ def validate_dns_records(records: List[DnsRecord]):
 # ==========================================
 @app.get("/api/zones/list/{tier}")
 async def list_zone_files(tier: str):
-    # Translates "Root" -> "root" and maps it to your ZONE_DIR
     tier_dir = os.path.join(ZONE_DIR, tier.lower())
-    
     if not os.path.exists(tier_dir):
         return []
     
     zones = []
     for file in os.listdir(tier_dir):
-        # Grab only the base zone files, ignoring the signed ones
         if file.endswith(".zone") and not file.endswith(".signed.zone"):
             zones.append(file.replace(".zone", ""))
-            
     return zones
 
 @app.get("/api/zone/{server_name}/{zone_name}", response_model=ZoneData)
 async def get_zone(server_name: str, zone_name: str):
-    # Direct path calculation! No more scanning subdirectories.
     file_path = os.path.join(ZONE_DIR, server_name.lower(), f"{zone_name.lower()}.zone")
-    
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"Zone file '{zone_name}.zone' not found in '{server_name}' tier.")
 
@@ -204,13 +190,10 @@ async def get_zone(server_name: str, zone_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse zone: {str(e)}")
 
-
 @app.post("/api/zone/{server_name}/{zone_name}")
 async def save_zone(server_name: str, zone_name: str, payload: ZoneData):
-    # Ensure the target folder exists (e.g., /zones/auth/)
     tier_dir = os.path.join(ZONE_DIR, server_name.lower())
     os.makedirs(tier_dir, exist_ok=True)
-    
     file_path = os.path.join(tier_dir, f"{zone_name.lower()}.zone")
 
     try:
@@ -219,21 +202,43 @@ async def save_zone(server_name: str, zone_name: str, payload: ZoneData):
         raise HTTPException(status_code=400, detail=str(e))
 
     try:
+        # 1. Write the raw file
         with open(file_path, "w") as f:
             f.write(f"$ORIGIN {payload.origin}\n")
             f.write(f"$TTL {payload.defaultTtl}\n\n")
-
             for rec in payload.records:
                 ttl_str = f"{rec.ttl}\t" if rec.ttl is not None else ""
                 line = f"{rec.name.ljust(19)} {ttl_str}{rec.record_class}\t{rec.type.ljust(4)}\t{rec.data}\n"
                 f.write(line)
 
-        print(f"[FastAPI] Regenerating keys and reloading zone for {zone_name} in {server_name}...")
-        return {"success": True, "message": "Zone saved and regenerated."}
+        print(f"[FastAPI] Regenerating keys and securely signing zone for {zone_name} in {server_name}...")
+
+        # 2. Targeted DNSSEC Re-Signing
+        fqdn = "." if zone_name.lower() == "root" else f"{zone_name.lower()}."
+        child_zones = [rec.name for rec in payload.records if rec.type == "NS" and rec.name.endswith(fqdn) and rec.name != fqdn]
+        keys_dir = os.path.join(project_root, "keys")
+
+        # Check for missing keys and generate if needed
+        ksk_priv_path = os.path.join(keys_dir, f"{fqdn}KSK_private.pem")
+        if not os.path.exists(ksk_priv_path):
+            generate_zone_keys(fqdn, output_dir=keys_dir)
+
+        for child in child_zones:
+            child_ksk_path = os.path.join(keys_dir, f"{child}KSK_private.pem")
+            if not os.path.exists(child_ksk_path):
+                generate_zone_keys(child, output_dir=keys_dir)
+
+        # 3. Call the imported Signer function
+        in_path = Path(file_path)
+        out_path = Path(file_path.replace(".zone", ".signed.zone"))
+        
+        sign_zone(in_path, out_path, fqdn, child_zones, keys_dir=keys_dir)
+
+        return {"success": True, "message": "Zone saved and securely signed."}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save zone: {str(e)}")
-
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save and sign zone: {str(e)}")
 
 @app.delete("/api/zone/{server_name}/{zone_name}")
 async def delete_zone(server_name: str, zone_name: str):
@@ -252,10 +257,10 @@ async def delete_zone(server_name: str, zone_name: str):
         return {"success": True, "message": f"Zone {zone_name} deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete zone files: {str(e)}")
+
 # ==========================================
 # 4. SPECIFIC RECORD ENDPOINTS
 # ==========================================
-
 @app.get("/api/zone/{server_name}/{zone_name}/records/a")
 async def get_a_records(server_name: str, zone_name: str):
     zone_data = await get_zone(server_name, zone_name)
@@ -263,19 +268,12 @@ async def get_a_records(server_name: str, zone_name: str):
     return {"server_name": server_name, "zone_name": zone_name, "a_records": a_records}
 
 @app.post("/api/zone/{server_name}/{zone_name}/records/a/{record_id}")
-async def update_a_record(
-    server_name: str, 
-    zone_name: str, 
-    record_id: str, # 2. Added it to the function arguments!
-    payload: ARecordUpdate
-):
+async def update_a_record(server_name: str, zone_name: str, record_id: str, payload: ARecordUpdate):
     zone_data = await get_zone(server_name, zone_name)
     record_found = False
     
     for rec in zone_data["records"]:
-        # 3. We check against `record_id` from the URL, NOT `payload.id`
         if rec["type"] == "A" and rec["id"] == record_id:
-            # Update the existing record's fields
             rec["name"] = payload.name 
             rec["data"] = payload.ip
             if payload.ttl is not None: 
@@ -284,7 +282,6 @@ async def update_a_record(
             break
             
     if not record_found:
-        # If the record ID wasn't found, generate a new one and append it
         existing_ids = [int(r["id"]) for r in zone_data["records"] if r["id"].isdigit()]
         next_id = str(max(existing_ids) + 1) if existing_ids else "1"
         new_record = {
@@ -298,32 +295,24 @@ async def update_a_record(
         zone_data["records"].append(new_record)
         
     zone_payload = ZoneData(**zone_data)
-    
-    # Save it back to disk
     await save_zone(server_name, zone_name, zone_payload)
     
     action = "Updated" if record_found else "Created"
     return {"success": True, "message": f"A record '{payload.name}' {action} successfully with IP {payload.ip}."}
+
 # ==========================================
-# 5. SERVER RUNNER
+# 5. SERVER RUNNER & CONFIG ENDPOINTS 
 # ==========================================
 resolver_ref = None
-# ==========================================
-# 6. CONFIG ENDPOINTS 
-# ==========================================
 
 @app.get("/api/config/{server_name}")
 async def get_server_config(server_name: str):
     file_path = os.path.join(CONFIG_DIR, f"{server_name.lower()}_config.yaml") 
-    
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Config file not found.")
-
     try:
-        # Added encoding="utf-8" to prevent Windows encoding crashes
         with open(file_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
-        
         if not raw_content.strip():
             raise HTTPException(status_code=500, detail="File is empty.")
 
@@ -333,28 +322,20 @@ async def get_server_config(server_name: str):
             validated_config = ResolverConfig(**raw_yaml_dict)
         else:
             validated_config = NameServerConfig(**raw_yaml_dict)
-
         return validated_config
-
     except Exception as e:
-        traceback.print_exc()  # This forces the full red stack trace to print
+        traceback.print_exc() 
         raise HTTPException(status_code=500, detail=f"Backend crash: {str(e)}")
 
 @app.post("/api/config/{server_name}")
 async def save_server_config(server_name: str, payload: ConfigPayload):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     file_path = os.path.join(CONFIG_DIR, f"{server_name.lower()}_config.yaml")
-
     try:
-        # Convert Pydantic object back to a standard dictionary
         config_dict = payload.model_dump() 
-        
         with open(file_path, "w") as f:
-            # Dump dictionary to strictly formatted YAML
             yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
-            
         return {"success": True, "message": "Configuration saved successfully."}
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to write YAML config: {str(e)}")
 
