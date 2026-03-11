@@ -25,22 +25,18 @@ class Resolver:
         self.running = False
         self.server_socket = None
         self.cache_lock = threading.Lock()
-        self.in_flight_queries = set()
+
+        self.in_flight_queries = {} 
         self.lock = threading.Lock()
 
-    # --- NEW HELPER: Detect Client's DO Bit ---
     def wants_dnssec(self, request):
-        """Checks the EDNS0 OPT record to see if the client requested DNSSEC (DO bit)."""
         for rr in request.ar:
             if rr.rtype == getattr(QTYPE, 'OPT'):
-                # The DO bit is the highest bit (0x8000) of the 32-bit TTL field
                 if (rr.ttl & 0x8000) != 0:
                     return True
         return False
 
-    # --- NEW HELPER: Strip bloated records ---
     def strip_dnssec_records(self, reply):
-        """Strips custom DNSSEC TXT records from the reply payload."""
         def is_dnssec_txt(rr):
             if rr.rtype == getattr(QTYPE, 'TXT'):
                 try:
@@ -54,7 +50,7 @@ class Resolver:
         reply.rr = [rr for rr in reply.rr if not is_dnssec_txt(rr)]
         reply.auth = [rr for rr in reply.auth if not is_dnssec_txt(rr)]
         reply.ar = [rr for rr in reply.ar if not is_dnssec_txt(rr)]
-
+        
     def _resolve_iterative(self, request, target_domain):
         current_ip = self.config.root_server_ip
         current_port = self.config.root_server_port
@@ -149,7 +145,6 @@ class Resolver:
         return error_reply.pack(), None
 
     def _handle_cache_lookup(self, request, qname, qtype, wants_dnssec, addr, socket_ref):
-            # 2. PROTECT CACHE READS
             with self.cache_lock:
                 cached_response = self.cache.get(qname, qtype)
                 if cached_response:
@@ -175,11 +170,17 @@ class Resolver:
     def _validate_dnssec(self, request, real_reply, qname, auth_ip, addr, socket_ref):
         client_requested_dnssec = self.wants_dnssec(request)
         checking_disabled = (request.header.cd == 1)
-        should_validate = (getattr(self, 'dnssec_enabled', False) or client_requested_dnssec) and not checking_disabled
+        
+        # --- FIX 1: "Client-Driven" Toggle ---
+        # We drop the global 'dnssec_enabled' check.
+        # Now, the server ONLY does the math if the specific client asked for it!
+        should_validate = client_requested_dnssec and not checking_disabled
 
         if not should_validate:
             if checking_disabled:
                 print(f"[*] Client sent CD=1 (Checking Disabled). Bypassing DNSSEC validation for {qname}.")
+            else:
+                print(f"[*] Client did not request DNSSEC. Bypassing validation math for {qname}.")
             return False
 
         if auth_ip is None:
@@ -196,34 +197,27 @@ class Resolver:
                 if txt_val.startswith("RRSIG|A|"):
                     rrsig_b64 = txt_val.split("|")[2]
 
+        # --- FIX 2: Removed the cache_lock! ---
+        # Cryptography happens out in the open so other threads can still read the cache.
         if target_ip_ans and rrsig_b64:
             is_secure = DNSSECValidator.verify_dnssec_chain(
                 domain=actual_record_name, qtype_str="A", rdata_str=target_ip_ans, 
                 signature_b64=rrsig_b64, auth_ip=auth_ip, bind_ip=self.config.bind_ip,
                 dnskey_cache=self.dnskey_cache, ds_cache=self.ds_cache
             )
-            
-        with self.cache_lock:
-            if target_ip_ans and rrsig_b64:
-                is_secure = DNSSECValidator.verify_dnssec_chain(
-                    domain=actual_record_name, qtype_str="A", rdata_str=target_ip_ans, 
-                    signature_b64=rrsig_b64, auth_ip=auth_ip, bind_ip=self.config.bind_ip,
-                    dnskey_cache=self.dnskey_cache, ds_cache=self.ds_cache
-                )
-        
-                if not is_secure:
-                    print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
-                    error_reply = request.reply()
-                    error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
-                    socket_ref.sendto(error_reply.pack(), addr)
-                    return None 
-                return True
-            else:
-                print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
-                return False
+    
+            if not is_secure:
+                print(f"[*] SECURE RESOLUTION ABORTED: {qname} failed validation.")
+                error_reply = request.reply()
+                error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
+                socket_ref.sendto(error_reply.pack(), addr)
+                return None 
+            return True
+        else:
+            print("[!] Warning: DNSSEC validation required but missing RRSIG. Assuming insecure.")
+            return False
 
     def _finalize_and_reply(self, real_reply, qname, qtype, is_secure, wants_dnssec, addr, socket_ref):
-        """Sets final flags, updates the cache, and sends the packet back to the client."""
         real_reply.header.aa = 0
         real_reply.header.ra = 1 
         
@@ -237,66 +231,87 @@ class Resolver:
                 cache_clone = DNSRecord.parse(real_reply.pack())
                 self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))
 
-        # 1. Store the fully bloated, signed record in cache by creating a clone
-        if real_reply.header.rcode == 0:
-            cache_clone = DNSRecord.parse(real_reply.pack())
-            self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))    
-        
-        # 2. Filter the record right before returning it to the user
         if not wants_dnssec:
             self.strip_dnssec_records(real_reply)
         socket_ref.sendto(real_reply.pack(), addr)
 
-        
-
-        
 
     def handle_query(self, data, addr, socket_ref):
         print(f"[DEBUG] Thread {threading.get_ident()} started processing {addr}")
 
-        
         try:
-            
             request = DNSRecord.parse(data)
             if request.header.qr == 1:
-                print("[WARNING] Received a DNS response on the resolver. Ignoring.")
                 return
 
             qname = str(request.q.qname)
             qtype = request.q.qtype
-
-            with self.lock:
-                if qname in self.in_flight_queries:
-                    print(f"[DEBUG] Dropping duplicate request for {qname}")
-                    return # Ignore this packet
-                self.in_flight_queries.add(qname)
-            
-            # Identify if client explicitly asked for DNSSEC
             client_wants_dnssec = self.wants_dnssec(request)
 
-            # --- STEP 1: CACHE LOOKUP ---
-            if self._handle_cache_lookup(request, qname, qtype, client_wants_dnssec, addr, socket_ref):
-                return 
+            # --- REQUEST COALESCING LOGIC ---
+            # Track by BOTH name and type so A and AAAA records don't block each other
+            query_key = (qname, qtype)
+            is_leader = False
+            wait_event = None
 
-            print(f"[CACHE MISS] Resolving {qname}...")
+            with self.lock:
+                if query_key in self.in_flight_queries:
+                    # Someone else is already fetching this! We will wait.
+                    wait_event = self.in_flight_queries[query_key]
+                else:
+                    # We are the first to ask. We are the Leader.
+                    wait_event = threading.Event()
+                    self.in_flight_queries[query_key] = wait_event
+                    is_leader = True
 
-            # --- STEP 2: ROUTING & RESOLUTION ---
+            if not is_leader:
+                print(f"[DEBUG] Coalescing duplicate query for {QTYPE[qtype]} {qname}. Waiting for leader...")
+                # Wait for the leader thread to finish fetching and save to cache
+                wait_event.wait(timeout=self.config.timeout + 2.0)
+                
+                # The leader finished! Serve our identical request instantly from the cache
+                if self._handle_cache_lookup(request, qname, qtype, client_wants_dnssec, addr, socket_ref):
+                    return 
+                    
+                # If leader failed and cache is still empty, return a SERVFAIL
+                error_reply = request.reply()
+                error_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
+                socket_ref.sendto(error_reply.pack(), addr)
+                return
+
+            # --- LEADER PROCESSING LOGIC ---
             try:
-                real_reply, auth_ip = self._fetch_upstream(request, qname)
-                
-                # --- STEP 3: DNSSEC VALIDATION ---
-                is_secure = self._validate_dnssec(request, real_reply, qname, auth_ip, addr, socket_ref)
-                
-                if is_secure is None:
-                    return # Packet dropped due to BOGUS signature.
+                # STEP 1: CACHE LOOKUP
+                if self._handle_cache_lookup(request, qname, qtype, client_wants_dnssec, addr, socket_ref):
+                    return 
 
-                # --- STEP 4: CACHE & REPLY ---
+                print(f"[CACHE MISS] Resolving {QTYPE[qtype]} {qname}...")
+
+                # STEP 2: ROUTING & RESOLUTION
+                real_reply, auth_ip = self._fetch_upstream(request, qname)
+                if real_reply is None:
+                    return
+                
+                # STEP 3: DNSSEC VALIDATION
+                is_secure = self._validate_dnssec(request, real_reply, qname, auth_ip, addr, socket_ref)
+                if is_secure is None:
+                    return 
+
+                # STEP 4: CACHE & REPLY
                 self._finalize_and_reply(real_reply, qname, qtype, is_secure, client_wants_dnssec, addr, socket_ref)
 
             except socket.timeout:
                 print(f"[TIMEOUT] Upstream server did not respond.")
             except Exception as e:
                 print(f"[ERROR] Upstream query failed: {e}")
+            finally:
+                # --- WAKE UP THE FOLLOWERS ---
+                # No matter what happens, we must clean up and trigger the event
+                # so the waiting threads can proceed and don't hang forever!
+                with self.lock:
+                    if query_key in self.in_flight_queries:
+                        self.in_flight_queries[query_key].set()
+                        del self.in_flight_queries[query_key]
 
         except Exception as e:
             print(f"[ERROR] Handling packet: {e}")
