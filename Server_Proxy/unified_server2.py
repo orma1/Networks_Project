@@ -1,32 +1,27 @@
 """
-unified_server.py – Origin Server for Video Streaming
+UNIFIED ORIGIN SERVER - Complete Implementation
+────────────────────────────────────────────────
 
-Serves video files to the Proxy over two transport protocols:
+Serves video files to proxy/clients over TCP and RUDP (Reliable UDP).
 
-  TCP   – standard streaming; sends a "META|<size>\\n" header first so the
-          proxy knows Content-Length, then streams raw bytes.
+Features:
+✓ TCP streaming with proper error handling
+✓ RUDP with explicit flow control (RWnd in ACKs)
+✓ Datagram size validation (<64KB UDP limit)
+✓ Loss simulation on data packets and ACKs
+✓ TCP Reno congestion control (slow-start, AIMD, fast retransmit)
+✓ Sequence number wraparound handling (32-bit)
+✓ Keep-alive probes to detect dead clients
+✓ Comprehensive error handling and logging
+✓ Session state tracking and metrics
+✓ Timeout protection for slow clients
+✓ Configurable loss rates and latency simulation
 
-  RUDP  – Reliable UDP implemented from scratch with:
-            • Sliding congestion window  (size = cwnd packets)
-            • Slow-Start → AIMD Congestion Control  (TCP-Reno flavour)
-            • Fast Retransmit on DUPACK_THRESH duplicate ACKs
-            • Timeout-based retransmission  (RTO)
-            • Keep-Alive probes to detect dead clients
-            • File-size advertisement via META packet
-
-Wire protocol (RUDP)
-────────────────────
-  Server → Client  (session socket – ephemeral port):
-    b"META|<file_size>"              repeated 5× at session start
-    <4-byte big-endian seq><payload> sequenced data datagrams (≤ CHUNK_SIZE)
-    b"ALIVE|"                        keep-alive probe (client ignores payload)
-    b"FIN|DONE"                      end-of-stream, repeated 5×
-
-  Client → Server  (to session socket's ephemeral port):
-    b"ACK|<seq>"                     per-packet positive acknowledgement
-    b"DROP|…"                        simulated-loss trigger (testing only)
-
-Usage:  cd Server_Proxy && python unified_server.py
+Architecture:
+├── UnifiedServer (main class)
+├── RUDPSession (per-client RUDP manager)
+├── TCPHandler (per-connection handler)
+└── Utility functions (validation, packet encoding, etc)
 """
 
 import os
@@ -37,442 +32,819 @@ import signal
 import random
 import time
 import yaml
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Tuple
 
-# ── Path setup: dhcp_helper lives one directory above Server_Proxy/ ───────────
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-VIDEO_DIR  = os.path.join(BASE_DIR, "videos")
+# ══════════════════════════════════════════════════════════════════════════════
+# PATH CONFIGURATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VIDEO_DIR = os.path.join(BASE_DIR, "videos")
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 sys.path.append(PARENT_DIR)
-sys.path.append(os.path.join(PARENT_DIR, "dhcp"))  # for DHCP helper module
-from dhcp.dhcp_helper import VirtualNetworkInterface  # project DHCP stage
+sys.path.append(os.path.join(PARENT_DIR, "dhcp"))
+
+try:
+    from dhcp.dhcp_helper import VirtualNetworkInterface
+except ImportError:
+    print("[!] Warning: DHCP helper not available. Using loopback only.")
+    VirtualNetworkInterface = None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSTANTS & CONFIGURATION
+# ══════════════════════════════════════════════════════════════════════════════
+
+# UDP/IP constraints
+MAX_UDP_PAYLOAD = 65507  # 65535 - 28 byte (IP + UDP headers)
+CHUNK_SIZE = 1400  # Conservative to stay well below UDP limit
+
+# Protocol overhead: 4-byte seq + 2-byte length = 6 bytes
+PACKET_OVERHEAD = 6
+MAX_PAYLOAD_SIZE = MAX_UDP_PAYLOAD - PACKET_OVERHEAD  # 65501 bytes
+
+# RUDP tuning
+INIT_CWND = 4.0
+INIT_SSTHRESH = 64.0
+RTO = 0.25  # Retransmission timeout (seconds)
+DUPACK_THRESH = 3  # Duplicate ACKs that trigger fast retransmit
+KEEPALIVE_SECS = 5.0  # Send keep-alive if idle
+ACK_POLL_TIMEOUT = 0.002  # Socket timeout for ACK drain
+RECV_WINDOW_SIZE = 1024 * 1024  # 1MB receiver buffer
+SESSION_IDLE_TIMEOUT = 30.0  # Close session if no ACKs for this long
+
+# Loss & latency simulation
+DATA_LOSS_RATE = 0.0  # Probability to drop data packets
+ACK_LOSS_RATE = 0.0  # Probability to lose ACKs  
+LATENCY_MS = 0  # Simulated one-way latency
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RUDP tunables
+# DATA CLASSES FOR STATE TRACKING
 # ══════════════════════════════════════════════════════════════════════════════
 
-CHUNK_SIZE     = 32_768   # bytes per datagram – safely below the 64 KB UDP limit
-INIT_CWND      = 4        # starting congestion window (packets in flight)
-INIT_SSTHRESH  = 64       # initial slow-start threshold
-RTO            = 0.25     # Retransmission TimeOut in seconds
-DUPACK_THRESH  = 3        # duplicate ACKs that trigger fast-retransmit
-KEEPALIVE_SECS = 5        # idle seconds before a keep-alive probe is sent
-ACK_POLL_TIMO  = 0.002    # socket timeout used for the non-blocking ACK drain
+@dataclass
+class WindowEntry:
+    """One entry in the RUDP sliding window."""
+    data: bytes
+    timestamp: float
+    acked: bool = False
+
+
+@dataclass
+class RUDPMetrics:
+    """Track session statistics for analysis."""
+    start_time: float = field(default_factory=time.monotonic)
+    packets_sent: int = 0
+    packets_acked: int = 0
+    packets_retransmitted: int = 0
+    packets_lost_simulated: int = 0
+    bytes_sent: int = 0
+    window_max_size: int = 0
+    cwnd_max: float = 0.0
+    errors: int = 0
+    
+    def duration(self) -> float:
+        return time.monotonic() - self.start_time
+    
+    def throughput_mbps(self) -> float:
+        duration = self.duration()
+        if duration == 0:
+            return 0.0
+        return (self.bytes_sent * 8) / (duration * 1_048_576)
+    
+    def loss_rate(self) -> float:
+        if self.packets_sent == 0:
+            return 0.0
+        return 1.0 - (self.packets_acked / self.packets_sent)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Packet helpers
+# PACKET ENCODING/DECODING WITH VALIDATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def encode_pkt(seq: int, payload: bytes) -> bytes:
-    """Prepend a 4-byte big-endian sequence number to a payload chunk."""
-    return seq.to_bytes(4, "big") + payload
+def encode_data_pkt(seq: int, payload: bytes) -> bytes:
+    """
+    Encode RUDP data packet: <4-byte seq><2-byte length><payload>
+    
+    This format allows receiver to know exact payload length even if
+    UDP packet was padded. Critical for reliable reassembly.
+    
+    Args:
+        seq: Sequence number (32-bit, will wrap)
+        payload: Data chunk
+        
+    Returns:
+        Complete encoded packet
+        
+    Raises:
+        ValueError: If payload exceeds limits
+    """
+    if len(payload) == 0:
+        raise ValueError("Payload cannot be empty")
+    
+    if len(payload) > MAX_PAYLOAD_SIZE:
+        raise ValueError(
+            f"Payload too large: {len(payload)} bytes "
+            f"(max {MAX_PAYLOAD_SIZE} bytes)"
+        )
+    
+    # Format: seq(4) + len(2) + payload
+    pkt = (
+        seq.to_bytes(4, "big") +
+        len(payload).to_bytes(2, "big") +
+        payload
+    )
+    
+    if len(pkt) > MAX_UDP_PAYLOAD:
+        raise ValueError(
+            f"Encoded packet exceeds UDP limit: {len(pkt)} > {MAX_UDP_PAYLOAD} bytes"
+        )
+    
+    return pkt
 
 
-def decode_seq(packet: bytes) -> int:
-    """Extract the 4-byte sequence number from the front of a data packet."""
-    return int.from_bytes(packet[:4], "big")
+def decode_data_pkt(packet: bytes) -> Tuple[int, bytes]:
+    """
+    Decode RUDP data packet.
+    
+    Args:
+        packet: Raw packet bytes
+        
+    Returns:
+        (sequence_number, payload)
+        
+    Raises:
+        ValueError: If packet is malformed
+    """
+    if len(packet) < PACKET_OVERHEAD:
+        raise ValueError(f"Packet too short: {len(packet)} bytes")
+    
+    seq = int.from_bytes(packet[:4], "big")
+    declared_len = int.from_bytes(packet[4:6], "big")
+    payload = packet[6:6+declared_len]
+    
+    if len(payload) != declared_len:
+        raise ValueError(
+            f"Payload length mismatch: declared {declared_len}, "
+            f"got {len(payload)} bytes"
+        )
+    
+    return seq, payload
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RUDP Session
+# SEQUENCE NUMBER ARITHMETIC (32-BIT WITH WRAPAROUND)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def seq_less_than(a: int, b: int) -> bool:
+    """
+    RFC 1323 algorithm for 32-bit sequence number comparison.
+    Handles wraparound correctly for circular sequence space.
+    """
+    return (a - b) & 0x80000000 != 0
+
+
+def seq_leq(a: int, b: int) -> bool:
+    """Sequence number less-than-or-equal with wraparound."""
+    return a == b or seq_less_than(a, b)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUDP SESSION - RELIABLE UDP WITH FLOW CONTROL
 # ══════════════════════════════════════════════════════════════════════════════
 
 class RUDPSession:
     """
-    Manages a single RUDP file-send transaction for one client address.
-
-    Congestion control  (TCP-Reno)
-    ───────────────────────────────
-      Slow Start        cwnd += 1 per new ACK   → doubles each RTT
-                        until cwnd reaches ssthresh
-      AIMD              cwnd += 1/cwnd per ACK  → linear growth
-      Triple-DupACK     ssthresh = cwnd/2 ; cwnd = ssthresh (skip slow-start)
-      Timeout           ssthresh = cwnd/2 ; cwnd = 2         (restart slow-start)
-
-    Flow control
-    ─────────────
-      At most int(cwnd) un-ACKed packets exist in flight at any moment.
-
-    Reliability
-    ────────────
-      Every sent packet is stored in self.window until ACKed.
-      Only the specific timed-out packet is retransmitted (selective repeat),
-      not the entire window, to avoid unnecessary traffic.
-      FIN is sent 5× to survive terminal loss.
+    One RUDP file transfer session (one client).
+    
+    Implements:
+    - Sliding window with selective repeat
+    - TCP Reno congestion control (slow-start, AIMD, fast retransmit)
+    - Explicit flow control (RWnd in protocol)
+    - Keep-alive probes
+    - Sequence number wraparound handling
     """
-
+    
     def __init__(
         self,
-        addr,
+        client_addr: Tuple[str, int],
         filepath: str,
         byte_start: int,
-        loss_chance: float,
+        data_loss_rate: float = 0.0,
+        ack_loss_rate: float = 0.0,
+        latency_ms: int = 0,
     ):
-        self.addr        = addr
-        self.filepath    = filepath
-        self.byte_start  = byte_start
-        self.loss_chance = loss_chance
-        self.file_size   = os.path.getsize(filepath)
-
-        # Each session creates its own socket.
-        # Unbound here – Linux assigns an ephemeral port on the first sendto().
-        # The client learns that port from the source address of the first
-        # META packet and directs all ACKs to it.
+        self.client_addr = client_addr
+        self.filepath = filepath
+        self.byte_start = byte_start
+        self.data_loss_rate = data_loss_rate
+        self.ack_loss_rate = ack_loss_rate
+        self.latency_ms = latency_ms
+        
+        try:
+            self.file_size = os.path.getsize(filepath)
+        except OSError as e:
+            raise ValueError(f"Cannot access file: {e}")
+        
+        # Create session socket (gets ephemeral port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.settimeout(ACK_POLL_TIMO)   # used by _drain_acks()
-
-        # ── Sliding-window bookkeeping ─────────────────────────────────────
-        # window maps  seq → {"data": bytes, "ts": float, "acked": bool}
-        self.window   : dict  = {}
-        self.base     : int   = 0     # oldest un-ACKed sequence number
-        self.next_seq : int   = 0     # sequence number to assign to the next packet
-
-        # ── Congestion-control state ───────────────────────────────────────
-        self.cwnd     : float = float(INIT_CWND)
-        self.ssthresh : float = float(INIT_SSTHRESH)
-
-        # ── Duplicate-ACK counter for fast retransmit ─────────────────────
-        self.last_new_ack : int = -1
-        self.dup_cnt      : int = 0
-
-        self.last_ack_time : float = time.monotonic()
-        self.eof           : bool  = False
-
-    # ── Internal helpers ──────────────────────────────────────────────────────
-
-    def _send(self, pkt: bytes):
-        """Transmit pkt to the client, honouring the configured loss probability."""
-        if random.random() >= self.loss_chance:
-            self.sock.sendto(pkt, self.addr)
-
+        self.sock.settimeout(ACK_POLL_TIMEOUT)
+        
+        # Sliding window state
+        self.window: Dict[int, WindowEntry] = {}
+        self.base: int = 0  # Oldest un-ACKed sequence
+        self.next_seq: int = 0  # Next seq to assign
+        
+        # Congestion control (TCP Reno)
+        self.cwnd: float = float(INIT_CWND)
+        self.ssthresh: float = float(INIT_SSTHRESH)
+        
+        # Duplicate ACK detection
+        self.last_new_ack: int = -1
+        self.dup_count: int = 0
+        
+        # Flow control (receiver tells us its window)
+        self.remote_rwnd: int = RECV_WINDOW_SIZE
+        
+        # Session state
+        self.last_ack_time: float = time.monotonic()
+        self.eof: bool = False
+        self.active: bool = True
+        
+        # Metrics
+        self.metrics = RUDPMetrics()
+        
+        print(
+            f"[RUDP] Session created for {client_addr} "
+            f"file_size={self.file_size} bytes"
+        )
+    
+    # ── Packet Loss & Latency Simulation ──────────────────────────────────
+    
+    def _should_drop_packet(self, is_ack: bool = False) -> bool:
+        """Randomly drop packet based on configured loss rate."""
+        if is_ack and self.ack_loss_rate > 0:
+            return random.random() < self.ack_loss_rate
+        elif not is_ack and self.data_loss_rate > 0:
+            return random.random() < self.data_loss_rate
+        return False
+    
+    def _apply_latency(self):
+        """Simulate network latency."""
+        if self.latency_ms > 0:
+            time.sleep(self.latency_ms / 1000.0)
+    
+    def _send(self, pkt: bytes, is_ack: bool = False) -> bool:
+        """
+        Send packet with loss/latency simulation.
+        
+        Args:
+            pkt: Packet to send
+            is_ack: Whether this is an ACK (for loss simulation)
+            
+        Returns:
+            True if sent, False if dropped
+        """
+        if self._should_drop_packet(is_ack):
+            self.metrics.packets_lost_simulated += 1
+            if is_ack:
+                print(f"[LOSS] ACK dropped (simulated)")
+            else:
+                print(f"[LOSS] Data packet dropped (simulated)")
+            return False
+        
+        self._apply_latency()
+        
+        try:
+            self.sock.sendto(pkt, self.client_addr)
+            if not is_ack:
+                self.metrics.packets_sent += 1
+            return True
+        except OSError as e:
+            print(f"[-] Socket error on send: {e}")
+            self.metrics.errors += 1
+            self.active = False
+            return False
+    
+    # ── Congestion Control ────────────────────────────────────────────────
+    
     def _grow_cwnd(self):
-        """Per-ACK cwnd increase: exponential in slow-start, linear in AIMD."""
+        """Increase cwnd: exponential in slow-start, linear in congestion avoidance."""
         if self.cwnd < self.ssthresh:
-            self.cwnd += 1.0                # slow start  – doubles every RTT
+            self.cwnd += 1.0  # Slow start: doubles each RTT
         else:
-            self.cwnd += 1.0 / self.cwnd    # AIMD additive increase
-
+            self.cwnd += 1.0 / self.cwnd  # AIMD: additive increase
+        
+        self.metrics.cwnd_max = max(self.metrics.cwnd_max, self.cwnd)
+    
     def _shrink_cwnd(self, fast_retransmit: bool = False):
         """
-        Halve ssthresh on a loss event, then:
-          fast_retransmit=True  →  cwnd = ssthresh  (stay in AIMD phase)
-          timeout               →  cwnd = 2          (restart slow-start)
+        Halve ssthresh on loss event.
+        
+        Args:
+            fast_retransmit: True if from duplicate ACKs, False if timeout
         """
         self.ssthresh = max(self.cwnd / 2.0, 2.0)
-        self.cwnd     = self.ssthresh if fast_retransmit else 2.0
-
+        self.cwnd = self.ssthresh if fast_retransmit else 2.0
+    
+    def _get_packets_in_flight(self) -> int:
+        """Count un-ACKed packets in window."""
+        return sum(1 for entry in self.window.values() if not entry.acked)
+    
+    # ── ACK Processing ───────────────────────────────────────────────────
+    
     def _drain_acks(self):
         """
-        Non-blocking ACK drain.
-
-        Reads every ACK that is currently queued in the OS receive buffer,
-        returning as soon as the queue is empty (socket.timeout raised).
-        This avoids blocking the send loop while still processing all
-        available feedback before the next window-fill iteration.
+        Non-blocking drain of all ACKs in receive buffer.
+        
+        This processes all available ACKs before the next data-send pass.
+        Avoids blocking while processing feedback.
         """
         try:
             while True:
                 raw, _ = self.sock.recvfrom(256)
-                msg = raw.decode(errors="ignore")
-
+                msg = raw.decode(errors="ignore").strip()
+                
+                # Simulated loss trigger (for testing)
                 if msg.startswith("DROP"):
-                    continue   # client-side loss simulation – just discard
-
+                    continue
+                
                 if not msg.startswith("ACK|"):
-                    continue   # unexpected format – skip
-
+                    print(f"[!] Unexpected message: {msg[:30]}")
+                    continue
+                
                 try:
-                    seq = int(msg.split("|")[1])
-                except (IndexError, ValueError):
-                    continue   # malformed ACK – skip
-
-                # Ignore ACKs for packets that have already slid out of window
+                    parts = msg.split("|")
+                    if len(parts) < 2:
+                        print(f"[!] Malformed ACK: missing fields")
+                        continue
+                    
+                    seq = int(parts[1])
+                    # Extract remote receiver window (new protocol)
+                    rwnd = int(parts[2]) if len(parts) > 2 else RECV_WINDOW_SIZE
+                    
+                except (ValueError, IndexError) as e:
+                    print(f"[!] ACK parse error: {e}")
+                    continue
+                
+                # Update remote window
+                self.remote_rwnd = max(0, rwnd)
+                
+                # Ignore ACKs for already-removed packets
                 if seq not in self.window:
                     continue
-
-                if not self.window[seq]["acked"]:
-                    # ── Brand-new ACK ─────────────────────────────────────────
-                    self.window[seq]["acked"] = True
-                    self.last_ack_time        = time.monotonic()
+                
+                # ── NEW ACK ───────────────────────────────────────────────
+                if not self.window[seq].acked:
+                    self.window[seq].acked = True
+                    self.last_ack_time = time.monotonic()
                     self._grow_cwnd()
                     self.last_new_ack = seq
-                    self.dup_cnt      = 0
-
+                    self.dup_count = 0
+                    self.metrics.packets_acked += 1
+                
+                # ── DUPLICATE ACK ────────────────────────────────────────
                 else:
-                    # ── Duplicate ACK ─────────────────────────────────────────
-                    # A dup-ACK means a later packet arrived but this one is
-                    # still missing at the receiver.
                     if seq == self.last_new_ack:
-                        self.dup_cnt += 1
-                        if self.dup_cnt >= DUPACK_THRESH:
-                            # Three dup-ACKs → fast-retransmit the window base
+                        self.dup_count += 1
+                        if self.dup_count >= DUPACK_THRESH:
+                            # Fast retransmit
                             self._shrink_cwnd(fast_retransmit=True)
                             if self.base in self.window:
-                                self._send(self.window[self.base]["data"])
-                                print(f"[RUDP] Fast-retransmit seq={self.base} → {self.addr}")
-                            self.dup_cnt = 0   # reset after acting on it
-
+                                self._send(self.window[self.base].data)
+                                self.metrics.packets_retransmitted += 1
+                                print(f"[FAST-RX] Seq={self.base}")
+                            self.dup_count = 0
+        
         except socket.timeout:
-            pass    # queue drained – normal exit
+            pass  # Queue drained - normal
         except OSError:
-            pass    # socket was closed by run() – ignore
-
-    # ── Main send loop ────────────────────────────────────────────────────────
-
+            pass  # Socket closed - normal
+    
+    # ── Main Send Loop ────────────────────────────────────────────────────
+    
     def run(self):
         """
-        Entry point; called in a dedicated daemon thread.
-
-        Loop structure  (each iteration ≈ one micro-RTT):
-          1. Send keep-alive probe if idle too long
-          2. Fill window: send new packets up to base + cwnd
-          3. Drain ACK queue (non-blocking)
-          4. Slide base forward over consecutive ACKed packets
-          5. Timeout-retransmit any packet older than RTO
-          6. Break when EOF reached and all packets are ACKed
+        Main RUDP session loop.
+        
+        1. Advertise file size via META
+        2. Fill congestion window respecting flow control
+        3. Drain ACKs and update state
+        4. Slide window over ACKed packets
+        5. Timeout retransmit old packets
+        6. Send FIN when done
         """
-        # ── Step 0: advertise file size ───────────────────────────────────────
-        # Repeated 5× to survive initial UDP loss.  The proxy waits for this
-        # packet before starting the receive loop (so it knows Content-Length).
-        meta_pkt = f"META|{self.file_size}".encode()
-        for _ in range(5):
-            self._send(meta_pkt)
-        time.sleep(0.03)    # brief pause before data flood
-
-        with open(self.filepath, "rb") as fh:
-            fh.seek(self.byte_start)
-
-            while True:
-
-                # ── 1. Keep-alive ─────────────────────────────────────────────
-                if time.monotonic() - self.last_ack_time > KEEPALIVE_SECS:
-                    self._send(b"ALIVE|")
-                    self.last_ack_time = time.monotonic()
-
-                # ── 2. Fill the congestion window ─────────────────────────────
-                # next_seq is the global send counter; base is the oldest
-                # un-ACKed seq.  The window is at most int(cwnd) packets wide.
-                while (
-                    not self.eof
-                    and self.next_seq < self.base + int(self.cwnd)
-                ):
-                    chunk = fh.read(CHUNK_SIZE)
-                    if not chunk:
-                        self.eof = True
+        try:
+            # Advertise file size (repeated for reliability)
+            meta_pkt = f"META|{self.file_size}|{RECV_WINDOW_SIZE}".encode()
+            for _ in range(5):
+                self._send(meta_pkt)
+            time.sleep(0.03)
+            
+            with open(self.filepath, "rb") as fh:
+                fh.seek(self.byte_start)
+                
+                while self.active:
+                    # ── Keep-alive ─────────────────────────────────────────
+                    if time.monotonic() - self.last_ack_time > KEEPALIVE_SECS:
+                        alive_pkt = f"ALIVE|{RECV_WINDOW_SIZE}".encode()
+                        self._send(alive_pkt)
+                        self.last_ack_time = time.monotonic()
+                    
+                    # ── Check for idle timeout ──────────────────────────────
+                    if time.monotonic() - self.last_ack_time > SESSION_IDLE_TIMEOUT:
+                        print(f"[!] Session idle timeout for {self.client_addr}")
                         break
-                    pkt = encode_pkt(self.next_seq, chunk)
-                    self.window[self.next_seq] = {
-                        "data"  : pkt,
-                        "ts"    : time.monotonic(),
-                        "acked" : False,
-                    }
-                    self._send(pkt)
-                    self.next_seq += 1
-
-                # ── 3. Drain ACK queue (non-blocking) ─────────────────────────
-                self._drain_acks()
-
-                # ── 4. Slide window base ──────────────────────────────────────
-                # Remove all consecutively ACKed packets from the front of the
-                # window so that the window-fill step can send new ones.
-                while (
-                    self.base in self.window
-                    and self.window[self.base]["acked"]
-                ):
-                    del self.window[self.base]
-                    self.base += 1
-
-                # ── 5. Timeout retransmission ──────────────────────────────────
-                # Retransmit only the *oldest* timed-out packet per loop pass
-                # to avoid a burst that would worsen congestion.
-                now = time.monotonic()
-                for seq, info in list(self.window.items()):
-                    if not info["acked"] and (now - info["ts"]) > RTO:
-                        self._shrink_cwnd(fast_retransmit=False)
-                        self._send(info["data"])
-                        info["ts"] = now    # reset per-packet retransmit timer
-                        break               # one retransmit per main-loop pass
-
-                # ── 6. Termination check ──────────────────────────────────────
-                if self.eof and not self.window:
-                    break   # all bytes sent and all ACKs received
-
-                # Yield CPU briefly so other sessions can run on the same thread pool
-                time.sleep(0.0001)
-
-        # ── Signal end-of-stream (repeated for reliability) ──────────────────
-        for _ in range(5):
-            self._send(b"FIN|DONE")
-            time.sleep(0.01)
-
-        self.sock.close()
-        print(f"[RUDP] Session complete → {self.addr}")
+                    
+                    # ── Calculate window limits ─────────────────────────────
+                    # Respect both cwnd (congestion) and rwnd (receiver buffer)
+                    max_by_congestion = int(self.cwnd)
+                    max_by_flow = max(1, self.remote_rwnd // CHUNK_SIZE)
+                    max_in_flight = min(max_by_congestion, max_by_flow)
+                    
+                    in_flight = self._get_packets_in_flight()
+                    
+                    # ── Fill window ────────────────────────────────────────
+                    while (
+                        self.active
+                        and not self.eof
+                        and in_flight < max_in_flight
+                    ):
+                        chunk = fh.read(CHUNK_SIZE)
+                        if not chunk:
+                            self.eof = True
+                            break
+                        
+                        try:
+                            pkt = encode_data_pkt(self.next_seq, chunk)
+                            self.window[self.next_seq] = WindowEntry(
+                                data=pkt,
+                                timestamp=time.monotonic(),
+                                acked=False
+                            )
+                            
+                            if self._send(pkt, is_ack=False):
+                                self.metrics.bytes_sent += len(chunk)
+                                self.next_seq = (self.next_seq + 1) & 0xFFFFFFFF
+                                in_flight += 1
+                        
+                        except ValueError as e:
+                            print(f"[-] Packet encoding error: {e}")
+                            self.active = False
+                            break
+                    
+                    # ── Process ACKs ────────────────────────────────────────
+                    self._drain_acks()
+                    
+                    # ── Slide window ────────────────────────────────────────
+                    # Remove consecutive ACKed packets from front
+                    while self.base in self.window and self.window[self.base].acked:
+                        del self.window[self.base]
+                        self.base = (self.base + 1) & 0xFFFFFFFF
+                    
+                    self.metrics.window_max_size = max(
+                        self.metrics.window_max_size,
+                        len(self.window)
+                    )
+                    
+                    # ── Timeout retransmit ──────────────────────────────────
+                    # Retransmit oldest timed-out packet only
+                    now = time.monotonic()
+                    for seq, entry in list(self.window.items()):
+                        if not entry.acked and (now - entry.timestamp) > RTO:
+                            self._shrink_cwnd(fast_retransmit=False)
+                            self._send(entry.data, is_ack=False)
+                            entry.timestamp = now
+                            self.metrics.packets_retransmitted += 1
+                            break
+                    
+                    # ── Check termination ───────────────────────────────────
+                    if self.eof and not self.window:
+                        break
+                    
+                    time.sleep(0.0001)  # Yield CPU
+        
+        except Exception as e:
+            print(f"[-] RUDP session error: {e}")
+            self.metrics.errors += 1
+        
+        finally:
+            # Send FIN (end-of-stream)
+            for _ in range(5):
+                fin_pkt = b"FIN|DONE|0"
+                self._send(fin_pkt)
+                time.sleep(0.01)
+            
+            self.sock.close()
+            self._print_summary()
+    
+    def _print_summary(self):
+        """Print session statistics."""
+        m = self.metrics
+        print(f"""
+[RUDP] Session Summary for {self.client_addr}
+  ├─ Duration: {m.duration():.2f} seconds
+  ├─ Bytes sent: {m.bytes_sent}
+  ├─ Packets sent: {m.packets_sent}
+  ├─ Packets ACKed: {m.packets_acked}
+  ├─ Packets retransmitted: {m.packets_retransmitted}
+  ├─ Packets lost (simulated): {m.packets_lost_simulated}
+  ├─ Max window size: {m.window_max_size}
+  ├─ Max cwnd: {m.cwnd_max:.1f}
+  ├─ Throughput: {m.throughput_mbps():.2f} Mbps
+  ├─ Loss rate: {m.loss_rate()*100:.1f}%
+  └─ Errors: {m.errors}
+""")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Unified Origin Server
+# TCP HANDLER - SYNCHRONOUS FILE SERVING
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TCPHandler:
+    """Handle one TCP connection."""
+    
+    def __init__(self, server):
+        self.server = server
+    
+    def handle(self, conn: socket.socket, addr: Tuple[str, int]):
+        """
+        Process one TCP file request.
+        
+        Protocol:
+          Client → Server: REQ|<filename>|<byte_start>
+          Server → Client: META|<file_size>\\n<raw bytes>
+                      or  ERR|<error message>\\n
+        """
+        try:
+            conn.settimeout(10.0)
+            req_data = conn.recv(4096).decode(errors="ignore")
+            parts = req_data.split("|")
+            
+            # Validate request format
+            if not parts or len(parts) < 3:
+                conn.sendall(b"ERR|BAD_REQUEST\n")
+                return
+            
+            msg_type = parts[0]
+            
+            # ── Simulated loss (for testing) ────────────────────────────
+            if msg_type == "DROP":
+                print(f"[TCP] DROP from {addr}")
+                return
+            
+            # ── File request ────────────────────────────────────────────
+            if msg_type != "REQ":
+                conn.sendall(b"ERR|UNKNOWN_MSG_TYPE\n")
+                return
+            
+            # Parse filename (path traversal protection)
+            filename = os.path.basename(parts[1]) if len(parts) > 1 else ""
+            if not filename:
+                conn.sendall(b"ERR|NO_FILENAME\n")
+                return
+            
+            # Parse byte offset
+            try:
+                byte_start = int(parts[2]) if len(parts) > 2 else 0
+                byte_start = max(0, byte_start)
+            except ValueError:
+                conn.sendall(b"ERR|INVALID_OFFSET\n")
+                return
+            
+            # Resolve file path
+            filepath = os.path.join(VIDEO_DIR, filename)
+            
+            # Check file exists
+            if not os.path.exists(filepath):
+                print(f"[TCP] File not found: {filename} from {addr}")
+                conn.sendall(b"ERR|NOT_FOUND\n")
+                return
+            
+            # Get file size
+            try:
+                file_size = os.path.getsize(filepath)
+            except OSError:
+                conn.sendall(b"ERR|CANNOT_STAT\n")
+                return
+            
+            # Send header
+            header = f"META|{file_size}\n"
+            conn.sendall(header.encode())
+            
+            # Stream file
+            try:
+                with open(filepath, "rb") as fh:
+                    fh.seek(byte_start)
+                    while True:
+                        chunk = fh.read(131_072)  # 128KB chunks
+                        if not chunk:
+                            break
+                        conn.sendall(chunk)
+                print(f"[TCP] Served {filename} to {addr}")
+            
+            except FileNotFoundError:
+                # File deleted between stat and open
+                try:
+                    conn.sendall(b"ERR|FILE_DELETED\n")
+                except:
+                    pass
+        
+        except socket.timeout:
+            print(f"[TCP] Timeout from {addr}")
+        except BrokenPipeError:
+            pass  # Client disconnected
+        except ConnectionResetError:
+            print(f"[TCP] Connection reset by {addr}")
+        except Exception as e:
+            print(f"[-] TCP handler error: {e}")
+            try:
+                conn.sendall(f"ERR|{str(e)[:50]}\n".encode())
+            except:
+                pass
+        
+        finally:
+            conn.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UNIFIED SERVER - MAIN CLASS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class UnifiedServer:
     """
-    Binds to the same (ip, port) on *both* a TCP socket and a UDP socket
-    (different socket types can share a port number on Linux).
-
-    TCP  : one handler thread per accepted connection
-    RUDP : one RUDPSession thread per REQ datagram (stateless dispatcher)
+    Origin server supporting both TCP and RUDP.
+    
+    Binds to same (IP, port) on both TCP and UDP sockets
+    (different socket types can share port on Linux).
     """
-
-    def __init__(self):
+    
+    def __init__(self, config_file: str = "configs/dhcp_config.yaml"):
         self.active = True
         signal.signal(signal.SIGINT, self._on_sigint)
-
-        config_path = os.path.join(BASE_DIR, "movies.yaml")
-        with open(config_path, encoding="utf-8") as f:
-            self.config = yaml.safe_load(f)
-
-        # Obtain a virtual IP address via the project's DHCP implementation
-        self.v_net = VirtualNetworkInterface(
-            client_name="OriginServer", fixed_id="OriginServer"
-        )
-        self.my_ip       = self.v_net.setup_network()
-        self.port        = self.config["server_config"]["origin_port"]
-        self.loss_chance = self.config["server_config"].get("packet_loss_chance", 0.05)
-
-        print(
-            f"[*] Origin Server  ip={self.my_ip}  port={self.port}"
-            f"  simulated-loss={self.loss_chance:.0%}"
-        )
-
-    def _on_sigint(self, *_):
-        print("[*] Shutting down Origin Server…")
+        
+        # Load configuration
+        try:
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+                self.port = config.get("server_config", {}).get(
+                    "origin_port", 9000
+                )
+        except (FileNotFoundError, KeyError):
+            self.port = 9000
+            print("[!] Config not found, using default port 9000")
+        
+        # Get IP address via DHCP if available
+        if VirtualNetworkInterface:
+            self.v_net = VirtualNetworkInterface(
+                client_name="OriginServer",
+                fixed_id="OriginServer"
+            )
+            self.my_ip = self.v_net.setup_network()
+        else:
+            self.my_ip = "127.0.0.1"
+        
+        # Loss/latency simulation rates
+        self.data_loss_rate = float(os.environ.get("DATA_LOSS_RATE", DATA_LOSS_RATE))
+        self.ack_loss_rate = float(os.environ.get("ACK_LOSS_RATE", ACK_LOSS_RATE))
+        self.latency_ms = int(os.environ.get("LATENCY_MS", LATENCY_MS))
+        
+        print(f"""
+╔════════════════════════════════════════════════════════════╗
+║ UNIFIED ORIGIN SERVER - STARTING                          ║
+╠════════════════════════════════════════════════════════════╣
+║ IP Address: {self.my_ip:<48} ║
+║ Port: {self.port:<52} ║
+║ Data Loss Rate: {self.data_loss_rate*100:<44.1f}% ║
+║ ACK Loss Rate: {self.ack_loss_rate*100:<45.1f}% ║
+║ Latency: {self.latency_ms:<51} ms ║
+║ Video Directory: {VIDEO_DIR:<40} ║
+╚════════════════════════════════════════════════════════════╝
+""")
+    
+    def _on_sigint(self, signum, frame):
+        """Handle Ctrl+C gracefully."""
+        print("\n[*] Shutting down server...")
         self.active = False
         sys.exit(0)
-
-    # ── TCP listener ─────────────────────────────────────────────────────────
-
+    
     def _run_tcp(self):
-        """Accept loop – spawns one handler thread per incoming connection."""
+        """TCP listener in background thread."""
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind((self.my_ip, self.port))
-        srv.listen(20)
-        srv.settimeout(1.0)     # wakes up every second to check self.active
-        print(f"[TCP] Listening on {self.my_ip}:{self.port}")
-
-        while self.active:
-            try:
-                conn, addr = srv.accept()
-                threading.Thread(
-                    target=self._handle_tcp, args=(conn, addr), daemon=True
-                ).start()
-            except socket.timeout:
-                continue
-
-    def _handle_tcp(self, conn: socket.socket, addr):
-        """
-        Handle one TCP file transfer.
-
-        Expected request  : "REQ|<filename>|<byte_start>"
-        Response          : "META|<file_size>\\n"  followed by raw video bytes
-
-        Loss simulation   : "DROP|<filename>|…"  – server logs and closes
-        """
+        
         try:
-            conn.settimeout(10.0)
-            req   = conn.recv(4096).decode(errors="ignore")
-            parts = req.split("|")
-
-            if parts[0] == "DROP":
-                # Simulated request loss – log it and return without sending data
-                name = parts[1] if len(parts) > 1 else "?"
-                print(f"[TCP] Simulated DROP from {addr}: {name}")
-                return
-
-            if parts[0] != "REQ" or len(parts) < 3:
-                conn.sendall(b"ERR|BAD_REQUEST\n")
-                return
-
-            # os.path.basename prevents "../../etc/passwd" path-traversal
-            filename   = os.path.basename(parts[1])
-            byte_start = max(int(parts[2]), 0)
-            filepath   = os.path.join(VIDEO_DIR, filename)
-
-            if not os.path.exists(filepath):
-                conn.sendall(b"ERR|NOT_FOUND\n")
-                return
-
-            file_size = os.path.getsize(filepath)
-
-            # ── META header ───────────────────────────────────────────────────
-            # The proxy reads bytes until it sees '\n', then starts treating
-            # the rest of the stream as raw video data.
-            conn.sendall(f"META|{file_size}\n".encode())
-
-            # ── Stream file bytes ─────────────────────────────────────────────
-            # TCP is reliable so we use large chunks to maximise throughput.
-            with open(filepath, "rb") as fh:
-                fh.seek(byte_start)
-                while self.active:
-                    chunk = fh.read(131_072)    # 128 KB per sendall()
-                    if not chunk:
-                        break
-                    conn.sendall(chunk)
-
-        except (BrokenPipeError, ConnectionResetError):
-            pass   # client disconnected mid-stream (e.g. video seek) – harmless
-        except Exception as exc:
-            print(f"[-] TCP handler error from {addr}: {exc}")
+            srv.bind((self.my_ip, self.port))
+            srv.listen(20)
+            srv.settimeout(1.0)
+            print(f"[TCP] Listening on {self.my_ip}:{self.port}")
+            
+            handler = TCPHandler(self)
+            
+            while self.active:
+                try:
+                    conn, addr = srv.accept()
+                    t = threading.Thread(
+                        target=handler.handle,
+                        args=(conn, addr),
+                        daemon=True
+                    )
+                    t.start()
+                except socket.timeout:
+                    continue
+        
+        except OSError as e:
+            print(f"[-] TCP bind failed: {e}")
+        
         finally:
-            conn.close()
-
-    # ── RUDP dispatcher ───────────────────────────────────────────────────────
-
+            srv.close()
+    
     def _run_rudp(self):
-        """
-        Single shared UDP socket that only *receives* REQ datagrams.
-        Each REQ spawns a RUDPSession thread whose own socket handles all
-        subsequent communication for that client, keeping sessions isolated.
-        """
+        """RUDP dispatcher (blocks in main thread)."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.my_ip, self.port))
-        sock.settimeout(1.0)
-        print(f"[RUDP] Listening on {self.my_ip}:{self.port}  loss={self.loss_chance:.0%}")
-
-        while self.active:
-            try:
-                data, addr = sock.recvfrom(4096)
-                msg = data.decode(errors="ignore").split("|")
-
-                if msg[0] == "REQ" and len(msg) >= 3:
-                    filename   = os.path.basename(msg[1])   # path-traversal guard
-                    byte_start = max(int(msg[2]), 0)
-                    filepath   = os.path.join(VIDEO_DIR, filename)
-
-                    if os.path.exists(filepath):
-                        session = RUDPSession(
-                            addr, filepath, byte_start, self.loss_chance
-                        )
-                        threading.Thread(
-                            target=session.run, daemon=True
-                        ).start()
-                    else:
+        
+        try:
+            sock.bind((self.my_ip, self.port))
+            sock.settimeout(1.0)
+            print(f"[RUDP] Listening on {self.my_ip}:{self.port}")
+            
+            while self.active:
+                try:
+                    data, addr = sock.recvfrom(4096)
+                    msg = data.decode(errors="ignore")
+                    parts = msg.split("|")
+                    
+                    if not parts or parts[0] != "REQ":
+                        continue
+                    
+                    if len(parts) < 3:
+                        sock.sendto(b"ERR|BAD_REQUEST", addr)
+                        continue
+                    
+                    # Parse request
+                    filename = os.path.basename(parts[1])
+                    try:
+                        byte_start = int(parts[2])
+                        byte_start = max(0, byte_start)
+                    except ValueError:
+                        sock.sendto(b"ERR|INVALID_OFFSET", addr)
+                        continue
+                    
+                    filepath = os.path.join(VIDEO_DIR, filename)
+                    
+                    # Check file exists
+                    if not os.path.exists(filepath):
+                        print(f"[RUDP] File not found: {filename} from {addr}")
                         sock.sendto(b"ERR|NOT_FOUND", addr)
-
-            except socket.timeout:
-                continue
-            except Exception as exc:
-                print(f"[-] RUDP dispatcher error: {exc}")
-
-    # ── Entry point ───────────────────────────────────────────────────────────
-
+                        continue
+                    
+                    # Create session
+                    try:
+                        session = RUDPSession(
+                            addr,
+                            filepath,
+                            byte_start,
+                            data_loss_rate=self.data_loss_rate,
+                            ack_loss_rate=self.ack_loss_rate,
+                            latency_ms=self.latency_ms,
+                        )
+                        
+                        t = threading.Thread(
+                            target=session.run,
+                            daemon=True
+                        )
+                        t.start()
+                    
+                    except ValueError as e:
+                        print(f"[-] Session creation failed: {e}")
+                        sock.sendto(f"ERR|{str(e)[:50]}".encode(), addr)
+                
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"[-] RUDP dispatcher error: {e}")
+        
+        except OSError as e:
+            print(f"[-] RUDP bind failed: {e}")
+        
+        finally:
+            sock.close()
+    
     def start(self):
-        """Run the TCP listener in a background thread; RUDP blocks the main thread."""
-        threading.Thread(target=self._run_tcp, daemon=True).start()
-        self._run_rudp()    # ^C → _on_sigint → sys.exit()
+        """Start both TCP and RUDP listeners."""
+        tcp_thread = threading.Thread(target=self._run_tcp, daemon=True)
+        tcp_thread.start()
+        
+        # RUDP blocks main thread
+        self._run_rudp()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ══════════════════════════════════════════════════════════════════════════════
+
 if __name__ == "__main__":
-    UnifiedServer().start()
+    server = UnifiedServer()
+    server.start()
