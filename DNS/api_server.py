@@ -41,8 +41,8 @@ if os.path.exists(os.path.join(CURRENT_DIR, "zones")):
     ZONE_DIR = os.path.join(CURRENT_DIR, "zones")
 else:
     ZONE_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "zones"))
-
-CONFIG_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "configs"))
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "configs"))
 
 # ==========================================
 # 1. PYDANTIC MODELS

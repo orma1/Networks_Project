@@ -40,27 +40,7 @@ export default function ZoneSelection({
         <h2>{serverName} Zone Configuration</h2>
 
         <div className="zone-header-actions">
-          {isCreating ? (
-            <>
-              <input
-                type="text"
-                placeholder="e.g. project.homelab"
-                value={newZoneName}
-                onChange={(e) => onSetNewZoneName(e.target.value)}
-                className="config-input"
-                style={{ marginTop: 0, width: "200px" }}
-              />
-              <button onClick={onCreateZone} className="btn-save">
-                Create
-              </button>
-              <button
-                onClick={() => onSetIsCreating(false)}
-                className="btn-delete"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
+          {!isCreating && (
             <>
               <button
                 onClick={() => onSetIsCreating(true)}
@@ -81,7 +61,41 @@ export default function ZoneSelection({
         </div>
       </div>
 
-      {/* --- FOLDER TABS & CONFIG CARD --- */}
+      {/* --- NEW: DEDICATED CREATION CARD --- */}
+      {isCreating && (
+        <div className="zone-folder-container" style={{ marginTop: "15px" }}>
+          <div
+            className="zone-globals connected-card"
+            style={{ display: "flex", alignItems: "flex-end", gap: "15px" }}
+          >
+            <div className="input-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label>Zone Name</label>
+              <input
+                type="text"
+                placeholder="e.g. project.homelab"
+                value={newZoneName}
+                onChange={(e) => onSetNewZoneName(e.target.value)}
+                className="config-input"
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={onCreateZone} className="btn-save">
+                Create Zone
+              </button>
+              <button
+                onClick={() => onSetIsCreating(false)}
+                className="btn-delete"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- FOLDER TABS & CONFIG CARD (Hidden while creating) --- */}
       {!isCreating && availableZones.length > 0 && (
         <div className="zone-folder-container">
           {/* 1. The Tab Bar */}
