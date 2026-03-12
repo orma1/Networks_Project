@@ -1,0 +1,15 @@
+# Proxy Configuration
+# -------------------
+
+# Choose either "rudp" or "tcp"
+protocol: "rudp"
+
+# Simulated packet loss for logging and UI display (0-100)
+# Note: Actual loss is usually simulated on the server side
+packet_loss_pct: 10
+
+# The hostname used to find the origin server
+origin_dns_name: "origin.server.lab"
+
+# The IP address of your DNS server
+dns_server_ip: "127.0.0.1"
