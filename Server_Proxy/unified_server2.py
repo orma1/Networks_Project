@@ -241,6 +241,7 @@ class RUDPSession:
         self.data_loss_rate = data_loss_rate
         self.ack_loss_rate = ack_loss_rate
         self.latency_ms = latency_ms
+        self.session_id = random.randint(1000, 9999)  # Unique session ID for logging
         
         try:
             self.file_size = os.path.getsize(filepath)
@@ -366,12 +367,10 @@ class RUDPSession:
                 raw, _ = self.sock.recvfrom(256)
                 msg = raw.decode(errors="ignore").strip()
                 
-                # Simulated loss trigger (for testing)
-                if msg.startswith("DROP"):
-                    continue
-                
                 if not msg.startswith("ACK|"):
-                    print(f"[!] Unexpected message: {msg[:30]}")
+                    # Ignore non-ACK messages
+                    if msg.startswith("DROP"):
+                        print(f"[SERVER] Received DROP packet from proxy (testing) - ignored")
                     continue
                 
                 try:
@@ -431,11 +430,17 @@ class RUDPSession:
         1. Advertise file size via META
         2. Fill congestion window respecting flow control
         3. Drain ACKs and update state
-        4. Slide window over ACKed packets
-        5. Timeout retransmit old packets
-        6. Send FIN when done
+        4. Timeout retransmit old packets
+        5. Send FIN when done
         """
         try:
+            # Log session startup with loss rate
+            # NOTE: Loss simulation happens automatically in _send() method
+            if self.data_loss_rate > 0:
+                print(f"[RUDP] Session starting - LOSS SIMULATION ACTIVE (loss_rate={self.data_loss_rate*100:.1f}%)")
+            else:
+                print(f"[RUDP] Session starting - NO PACKET LOSS (loss_rate=0%)")
+            
             # Advertise file size (repeated for reliability)
             meta_pkt = f"META|{self.file_size}|{RECV_WINDOW_SIZE}".encode()
             for _ in range(5):
@@ -716,8 +721,9 @@ class UnifiedServer:
 ╠════════════════════════════════════════════════════════════╣
 ║ IP Address: {self.my_ip:<48} ║
 ║ Port: {self.port:<52} ║
-║ Data Loss Rate: {self.data_loss_rate*100:<44.1f}% ║
-║ ACK Loss Rate: {self.ack_loss_rate*100:<45.1f}% ║
+║ Data Loss Rate (env): {os.environ.get("DATA_LOSS_RATE", "NOT SET"):<40} ║
+║ Data Loss Rate (actual): {self.data_loss_rate*100:<40.1f}% ║
+║ ACK Loss Rate: {self.ack_loss_rate*100:<44.1f}% ║
 ║ Latency: {self.latency_ms:<51} ms ║
 ║ Video Directory: {VIDEO_DIR:<40} ║
 ╚════════════════════════════════════════════════════════════╝
@@ -767,7 +773,7 @@ class UnifiedServer:
         
         try:
             sock.bind((self.my_ip, self.port))
-            sock.settimeout(1.0)
+            sock.settimeout(0.01)  # Short timeout for draining messages
             print(f"[RUDP] Listening on {self.my_ip}:{self.port}")
             
             while self.active:
@@ -776,8 +782,40 @@ class UnifiedServer:
                     msg = data.decode(errors="ignore")
                     parts = msg.split("|")
                     
+                    # ── Handle LOSS_RATE updates from proxy ────────────────
+                    if parts and parts[0] == "LOSS_RATE":
+                        try:
+                            new_loss_rate = float(parts[1])
+                            if new_loss_rate != self.data_loss_rate:
+                                self.data_loss_rate = new_loss_rate
+                                print(f"[SERVER] 🔄 Loss rate updated to: {new_loss_rate*100:.1f}%")
+                        except (ValueError, IndexError):
+                            pass
+                        continue
+                    
+                    # ── Handle REQ (new stream requests) ──────────────────
                     if not parts or parts[0] != "REQ":
                         continue
+                    
+                    # BEFORE creating session, drain any pending LOSS_RATE messages!
+                    print(f"[SERVER] 📥 REQ received, draining pending LOSS_RATE messages...")
+                    sock.settimeout(0.001)  # Very short timeout for draining
+                    while True:
+                        try:
+                            drain_data, _ = sock.recvfrom(4096)
+                            drain_msg = drain_data.decode(errors="ignore")
+                            drain_parts = drain_msg.split("|")
+                            if drain_parts and drain_parts[0] == "LOSS_RATE":
+                                try:
+                                    new_loss_rate = float(drain_parts[1])
+                                    if new_loss_rate != self.data_loss_rate:
+                                        self.data_loss_rate = new_loss_rate
+                                        print(f"[SERVER] 🔄 DRAINED: Loss rate updated to: {new_loss_rate*100:.1f}%")
+                                except (ValueError, IndexError):
+                                    pass
+                        except socket.timeout:
+                            break  # No more pending messages
+                    sock.settimeout(0.01)  # Reset timeout
                     
                     if len(parts) < 3:
                         sock.sendto(b"ERR|BAD_REQUEST", addr)
@@ -800,8 +838,9 @@ class UnifiedServer:
                         sock.sendto(b"ERR|NOT_FOUND", addr)
                         continue
                     
-                    # Create session
+                    # Create session with CORRECT (drained) loss_rate
                     try:
+                        print(f"[SERVER] ✅ Creating session with loss_rate={self.data_loss_rate*100:.1f}%")
                         session = RUDPSession(
                             addr,
                             filepath,

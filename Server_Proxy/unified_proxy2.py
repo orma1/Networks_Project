@@ -1,12 +1,13 @@
 """
-UNIFIED EDGE PROXY - FIXED VERSION WITH REAL-TIME DASH
-───────────────────────────────────────────────────────
+UNIFIED EDGE PROXY - WITH DNS & DETAILED PACKET LOSS LOGGING
+──────────────────────────────────────────────────────────────
 
-Improvements:
-✓ Real-time DASH quality selection based on measured throughput
-✓ Fixed Content-Length handling (no premature stream termination)
-✓ Better error handling for incomplete responses
-✓ Dynamic quality switching at segment boundaries
+Key features:
+✓ DNS resolution for origin server address
+✓ Detailed packet loss visibility with emojis
+✓ Real-time DASH quality selection
+✓ HTTP 200 for RUDP (no Content-Length errors)
+✓ HTTP 206 for TCP (Range requests)
 """
 
 import os
@@ -24,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from dnslib import DNSRecord
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -41,7 +43,7 @@ except ImportError:
 
 SOCKET_TIMEOUT = 0.3
 META_WAIT_SECS = 2.0
-DASH_WINDOW_SECS = 1.0  # Reduced for faster quality updates
+DASH_WINDOW_SECS = 1.0
 CHUNK_READ_SIZE = 65535
 RECV_BUFFER_SIZE = 1024 * 1024
 
@@ -54,14 +56,7 @@ MAX_UDP_PAYLOAD = 65507
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DASHQualitySelector:
-    """
-    Measures throughput in real-time and selects quality dynamically.
-    
-    Quality thresholds:
-      < 1 Mbps   → 480p (low)
-      1-3.5 Mbps → 720p (medium)
-      > 3.5 Mbps → 1080p (high)
-    """
+    """Real-time quality measurement based on throughput."""
     
     def __init__(self):
         self.current_quality = "720"
@@ -70,7 +65,7 @@ class DASHQualitySelector:
         self.lock = threading.Lock()
     
     def add_bytes(self, num_bytes: int) -> str:
-        """Add bytes to measurement and return current quality."""
+        """Add bytes and return current quality."""
         with self.lock:
             self.bytes_measured += num_bytes
             elapsed = time.monotonic() - self.window_start
@@ -78,13 +73,11 @@ class DASHQualitySelector:
             if elapsed < DASH_WINDOW_SECS:
                 return self.current_quality
             
-            # Calculate throughput
             if elapsed == 0:
                 mbps = 0
             else:
                 mbps = (self.bytes_measured * 8) / (elapsed * 1_048_576)
             
-            # Select quality
             if mbps < 1.0:
                 quality = "480"
             elif mbps < 3.5:
@@ -93,9 +86,8 @@ class DASHQualitySelector:
                 quality = "1080"
             
             self.current_quality = quality
-            print(f"[DASH] Throughput: {mbps:.2f} Mbps → Quality: {quality}p")
+            print(f"[DASH] 📊 Throughput: {mbps:.2f} Mbps → Quality: {quality}p")
             
-            # Reset window
             self.bytes_measured = 0
             self.window_start = time.monotonic()
             
@@ -141,17 +133,18 @@ def decode_data_pkt(packet: bytes) -> Tuple[int, bytes]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RUDP CLIENT WITH FLOW CONTROL AND REAL-TIME QUALITY SELECTION
+# RUDP CLIENT WITH FLOW CONTROL & DETAILED LOGGING
 # ══════════════════════════════════════════════════════════════════════════════
 
 def rudp_stream_with_dash(
     filename: str,
     byte_start: int,
     server_addr: Tuple[str, int],
+    packet_loss_pct: float = 0,
     quality_selector: Optional[DASHQualitySelector] = None,
 ) -> Tuple[Generator[bytes, None, None], RUDPStreamState]:
     """
-    RUDP client with flow control and real-time DASH quality tracking.
+    RUDP client with flow control, real-time DASH, detailed packet loss logging.
     """
     
     state = RUDPStreamState(start_time=time.monotonic())
@@ -164,20 +157,21 @@ def rudp_stream_with_dash(
         expected_seq: int = 0
         origin_addr: Optional[Tuple[str, int]] = None
         bytes_buffered: int = 0
+        packets_lost_count: int = 0
+        packets_received_count: int = 0
         
         try:
-            # Send request
-            if PACKET_LOSS_PCT > 0 and random.random() < (PACKET_LOSS_PCT / 100):
-                req_pkt = f"DROP|{filename}|{byte_start}".encode()
-                print(f"[*] Simulating RUDP packet loss for {filename} at byte {byte_start}")
-            else:
-                req_pkt = f"REQ|{filename}|{byte_start}".encode()
+            # Simply send request - server will handle loss simulation
+            print(f"[RUDP] 📤 Sending request: {filename} (offset: {byte_start})")
+            req_pkt = f"REQ|{filename}|{byte_start}".encode()
             sock.sendto(req_pkt, server_addr)
             
             # Wait for META
             meta_deadline = time.monotonic() + META_WAIT_SECS
+            meta_attempts = 0
             while time.monotonic() < meta_deadline:
                 try:
+                    meta_attempts += 1
                     raw, addr = sock.recvfrom(CHUNK_READ_SIZE)
                     
                     if raw[:4] == b"META":
@@ -187,7 +181,10 @@ def rudp_stream_with_dash(
                             state.remote_rwnd = int(parts[2]) if len(parts) > 2 else RECV_BUFFER_SIZE
                             origin_addr = addr
                             state.connected = True
-                            print(f"[RUDP] Connected to {addr}, file_size={state.file_size}")
+                            print(f"[RUDP] ✅ Connected to origin server: {addr}")
+                            print(f"[RUDP]    File size: {state.file_size:,} bytes")
+                            print(f"[RUDP]    Remote window: {state.remote_rwnd:,} bytes")
+                            print(f"[RUDP] 📥 Starting to receive data packets...")
                             break
                         except (ValueError, IndexError) as e:
                             print(f"[!] META parse error: {e}")
@@ -198,14 +195,25 @@ def rudp_stream_with_dash(
             
             if origin_addr is None:
                 state.error_msg = f"No META within {META_WAIT_SECS}s"
-                print(f"[-] {state.error_msg}")
+                print(f"[-] ❌ {state.error_msg}")
                 return
             
             # ── Main receive loop ─────────────────────────────────────────
+            print(f"[RUDP] 📥 Starting to receive data packets...")
+            packets_dropped_received = 0
+            
             while True:
                 try:
                     raw, addr = sock.recvfrom(CHUNK_READ_SIZE)
                 except socket.timeout:
+                    continue
+                
+                # ── Check for DROP packets from server (loss simulation) ──
+                if raw[:4] == b"DROP":
+                    packets_dropped_received += 1
+                    drop_msg = raw.decode(errors='ignore')
+                    print(f"[PROXY] 🔴 Ignored DROP packet #{packets_dropped_received} from server (packet loss simulation)")
+                    # Don't process further, just continue to next packet
                     continue
                 
                 # ── Control messages ──────────────────────────────────────
@@ -220,18 +228,27 @@ def rudp_stream_with_dash(
                 
                 if raw[:4] == b"FIN|":
                     # Flush remaining packets
+                    if ooo_buffer:
+                        print(f"[RUDP] 📭 FIN received - flushing {len(ooo_buffer)} buffered packets")
                     while expected_seq in ooo_buffer:
                         payload = ooo_buffer.pop(expected_seq)
                         if quality_selector:
                             quality_selector.add_bytes(len(payload))
                         yield payload
                         expected_seq += 1
-                    print(f"[RUDP] Stream complete, {state.bytes_received} bytes received")
+                    print(f"[RUDP] ✅ Stream complete!")
+                    print(f"[RUDP] 📊 Final stats:")
+                    print(f"[RUDP]    Bytes received: {state.bytes_received:,}")
+                    print(f"[RUDP]    Packets received: {packets_received_count}")
+                    print(f"[RUDP]    Packets lost: {packets_lost_count}")
+                    if packets_received_count > 0:
+                        loss_pct = (packets_lost_count / packets_received_count) * 100
+                        print(f"[RUDP]    Loss rate: {loss_pct:.2f}%")
                     break
                 
                 if raw[:4] == b"ERR|":
                     state.error_msg = raw.decode(errors='ignore')
-                    print(f"[-] Server error: {state.error_msg}")
+                    print(f"[-] ❌ Server error: {state.error_msg}")
                     break
                 
                 if raw[:4] == b"META":
@@ -245,7 +262,10 @@ def rudp_stream_with_dash(
                     seq, payload = decode_data_pkt(raw)
                 except ValueError as e:
                     print(f"[!] Decode error: {e}")
+                    packets_lost_count += 1
                     continue
+                
+                packets_received_count += 1
                 
                 # Calculate receiver window
                 local_rwnd = max(0, RECV_BUFFER_SIZE - bytes_buffered)
@@ -260,6 +280,7 @@ def rudp_stream_with_dash(
                 # Handle packet
                 if seq < expected_seq:
                     state.duplicate_packets += 1
+                    print(f"[RUDP] 🔄 Duplicate packet: seq={seq} (already delivered as of seq={expected_seq})")
                     continue
                 
                 if seq not in ooo_buffer:
@@ -270,11 +291,13 @@ def rudp_stream_with_dash(
                     state.duplicate_packets += 1
                 
                 # Yield in-order packets
+                delivered = 0
                 while expected_seq in ooo_buffer:
                     payload = ooo_buffer.pop(expected_seq)
                     bytes_buffered -= len(payload)
+                    delivered += 1
                     
-                    # Update DASH quality in real-time
+                    # Update DASH quality
                     if quality_selector:
                         quality_selector.add_bytes(len(payload))
                     
@@ -282,16 +305,30 @@ def rudp_stream_with_dash(
                     expected_seq += 1
                     state.bytes_received += len(payload)
                 
+                # Detailed logging
+                if delivered > 0:
+                    # print(f"[RUDP] ✓ Delivered {delivered} packet(s) in sequence (seq {expected_seq - delivered}-{expected_seq - 1})")
+                    if ooo_buffer:
+                        gap = min(ooo_buffer.keys()) - expected_seq
+                        # print(f"[RUDP]    ⚠️  Out-of-order buffer: {len(ooo_buffer)} packets, gap of {gap} seq(s)")
+                
                 # Track OOO
                 if ooo_buffer and min(ooo_buffer.keys()) != expected_seq:
                     state.packets_out_of_order += 1
         
         except Exception as e:
             state.error_msg = str(e)
-            print(f"[-] RUDP stream error: {e}")
+            print(f"[-] ❌ RUDP stream error: {e}")
         
         finally:
             sock.close()
+            if packets_dropped_received > 0:
+                print(f"[PROXY] Session stats:")
+                print(f"[PROXY]   Data packets received: {packets_received_count}")
+                print(f"[PROXY]   DROP packets ignored (from server): {packets_dropped_received}")
+                if packets_received_count + packets_dropped_received > 0:
+                    loss_pct = (packets_dropped_received / (packets_received_count + packets_dropped_received)) * 100
+                    print(f"[PROXY]   Loss rate: {loss_pct:.2f}%")
     
     return generate(), state
 
@@ -304,17 +341,15 @@ def tcp_stream(
     filename: str,
     byte_start: int,
     server_addr: Tuple[str, int],
+    packet_loss_pct: float = 0,
 ) -> Generator[bytes, None, None]:
-    """TCP streaming fallback."""
+    """TCP streaming - server handles loss simulation via DROP packets."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(10.0)
     
     try:
-        if PACKET_LOSS_PCT > 0 and random.random() < (PACKET_LOSS_PCT / 100):
-            cmd = f"DROP|{filename}|{byte_start}"
-            print(f"[*] Simulating TCP packet loss for {filename} at byte {byte_start}")
-        else:
-            cmd = f"REQ|{filename}|{byte_start}"
+        cmd = f"REQ|{filename}|{byte_start}"
+        print(f"[TCP] 📤 Sending request for {filename}")
         sock.connect(server_addr)
         sock.sendall(cmd.encode())
         
@@ -327,17 +362,20 @@ def tcp_stream(
             header_buf += chunk
         
         _header_line, leftover = header_buf.split(b"\n", 1)
+        print(f"[TCP] ✅ Connected, receiving data...")
         
         if leftover:
             yield leftover
         
-        # Stream rest
+        # Stream rest - TCP handles loss internally
         sock.settimeout(5.0)
         while True:
             chunk = sock.recv(131_072)
             if not chunk:
                 break
             yield chunk
+        
+        print(f"[TCP] ✅ Stream complete!")
     
     except Exception as e:
         print(f"[-] TCP stream error: {e}")
@@ -368,13 +406,45 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 
 MY_IP = "127.0.0.1"
-WEB_SERVER_ADDR = ("127.0.0.13", 9000)
+SERVER_PORT = 9000
+WEB_SERVER_ADDR = ("127.0.0.13", 9000)  # Will be updated by DNS
 PROTOCOL = "rudp"
 QUALITY_DISPLAY = "Auto"
 PACKET_LOSS_PCT = 0
 
-# Global DASH quality selector (per-stream if needed)
 quality_selector = DASHQualitySelector()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DNS RESOLUTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def resolve_origin_server():
+    """Resolve origin server address via DNS."""
+    global WEB_SERVER_ADDR
+    
+    try:
+        print(f"[DNS] 🔍 Resolving originserver.homelab via DNS (127.0.0.2:53)...")
+        ans = DNSRecord.question("originserver.homelab.").send("127.0.0.2", 53, timeout=2.0)
+        reply = DNSRecord.parse(ans)
+        resolved_ip = None
+        
+        for rr in reply.rr:
+            if rr.rtype == 1:  # A record
+                resolved_ip = str(rr.rdata)
+                break
+        
+        if resolved_ip:
+            WEB_SERVER_ADDR = (resolved_ip, SERVER_PORT)
+            print(f"[DNS] ✅ Successfully resolved originserver.homelab to {resolved_ip}:{SERVER_PORT}")
+        else:
+            print(f"[DNS] ⚠️  No A record found in response, using default")
+            WEB_SERVER_ADDR = ("127.0.0.13", SERVER_PORT)
+    
+    except Exception as e:
+        print(f"[DNS] ❌ Failed to resolve origin server via DNS: {e}")
+        print(f"[DNS] ⚠️  Using default address: 127.0.0.13:{SERVER_PORT}")
+        WEB_SERVER_ADDR = ("127.0.0.13", SERVER_PORT)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -417,6 +487,7 @@ async def index(request: Request):
             "status": "ok",
             "protocol": PROTOCOL.upper(),
             "quality": QUALITY_DISPLAY,
+            "packet_loss": PACKET_LOSS_PCT,
             "movies": load_movies()
         }
     return templates.TemplateResponse("index.html", get_context(request))
@@ -427,18 +498,31 @@ async def switch_protocol():
     """Toggle TCP/RUDP."""
     global PROTOCOL
     PROTOCOL = "rudp" if PROTOCOL == "tcp" else "tcp"
-    print(f"[*] Switched to {PROTOCOL.upper()}")
+    print(f"[*] 🔄 Switched to {PROTOCOL.upper()}")
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/set_loss")
 async def set_loss(request: Request):
-    """Set packet loss percentage."""
+    """Set packet loss percentage and notify server."""
     global PACKET_LOSS_PCT
     form = await request.form()
     try:
-        PACKET_LOSS_PCT = max(0, min(100, int(form.get("loss_percent", 0))))
-        print(f"[*] Set packet loss to {PACKET_LOSS_PCT}%")
+        new_loss_pct = max(0, min(100, int(form.get("loss_percent", 0))))
+        PACKET_LOSS_PCT = new_loss_pct
+        loss_rate = new_loss_pct / 100.0
+        
+        print(f"[*] 🔴 Packet loss set to {PACKET_LOSS_PCT}% (loss_rate={loss_rate:.2f})")
+        
+        # Notify server of new loss rate via UDP
+        try:
+            notify_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            notify_msg = f"LOSS_RATE|{loss_rate}".encode()
+            notify_sock.sendto(notify_msg, WEB_SERVER_ADDR)
+            notify_sock.close()
+            print(f"[*] ✅ Sent LOSS_RATE={loss_rate:.2f} to server")
+        except Exception as e:
+            print(f"[!] Could not notify server: {e}")
     except:
         pass
     return RedirectResponse("/", status_code=303)
@@ -461,9 +545,7 @@ async def play(request: Request, filename: str, force_quality: str = "auto"):
 @app.get("/stream/{filename}")
 def stream(request: Request, filename: str, force_quality: str = "auto"):
     """
-    Range-aware streaming with real-time DASH quality selection.
-    
-    This is synchronous so FastAPI runs it in a thread pool.
+    Streaming endpoint with proper handling for TCP vs RUDP + detailed logging.
     """
     global QUALITY_DISPLAY
     
@@ -471,7 +553,7 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
     quality = "720" if force_quality == "auto" else force_quality
     target = filename.replace(".mp4", f"_{quality}.mp4")
     
-    # Get file size
+    # Get file size for TCP
     video_dir = os.path.join(BASE_DIR, "videos")
     filepath = os.path.join(video_dir, target)
     
@@ -493,22 +575,52 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
         byte_start = 0
         byte_end = max(file_size - 1, 0)
     
-    # Ensure valid range
     byte_start = max(0, byte_start)
     if file_size > 0:
         byte_end = min(byte_end, file_size - 1)
     else:
         byte_end = 0
     
-    # Calculate content length
     content_length = max(byte_end - byte_start + 1, 0)
     
-    # Get streaming generator
+    print(f"\n{'='*70}")
+    print(f"[*] 🎬 New stream request")
+    print(f"    File: {target}")
+    print(f"    Protocol: {PROTOCOL.upper()}")
+    print(f"    Quality: {quality}p")
+    print(f"    Server loss rate: {PACKET_LOSS_PCT}%")
+    print(f"    Byte range: {byte_start}-{byte_end}/{file_size}")
+    print(f"{'='*70}\n")
+    
+    # ── PROTOCOL-SPECIFIC HANDLING ────────────────────────────────────────
+    
     if PROTOCOL == "tcp":
-        gen = tcp_stream(target, byte_start, WEB_SERVER_ADDR)
-        state = None
+        # TCP: Range requests with Content-Length
+        gen = tcp_stream(
+            target,
+            byte_start,
+            WEB_SERVER_ADDR,
+            packet_loss_pct=PACKET_LOSS_PCT
+        )
+        
+        headers = {
+            "Content-Range": f"bytes {byte_start}-{byte_end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(content_length),
+            "Cache-Control": "no-cache",
+        }
+        
+        return StreamingResponse(
+            gen,
+            status_code=206,
+            media_type="video/mp4",
+            headers=headers
+        )
+    
     else:
-        # Reset quality selector for new stream
+        # RUDP: Support Range requests for seeking
+        # We use HTTP 206 for range requests, HTTP 200 for full file
+        
         quality_selector.current_quality = "720"
         quality_selector.bytes_measured = 0
         quality_selector.window_start = time.monotonic()
@@ -517,34 +629,45 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
             target,
             byte_start,
             WEB_SERVER_ADDR,
+            packet_loss_pct=PACKET_LOSS_PCT,
             quality_selector=quality_selector if force_quality == "auto" else None
         )
         
-        # Update display
         if state and state.connected and force_quality == "auto":
             QUALITY_DISPLAY = "Auto (measuring...)"
-    
-    # Build response with proper headers
-    headers = {
-        "Content-Range": f"bytes {byte_start}-{byte_end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Cache-Control": "no-cache",
-    }
-    
-    print(f"[*] Streaming {target}: bytes {byte_start}-{byte_end}/{file_size} (length={content_length})")
-    
-    return StreamingResponse(
-        gen,
-        status_code=206,
-        media_type="video/mp4",
-        headers=headers
-    )
+        
+        # Determine HTTP status code and headers based on Range request
+        if byte_start > 0 or byte_end < (file_size - 1):
+            # Partial content requested
+            status_code = 206
+            rudp_headers = {
+                "Content-Range": f"bytes {byte_start}-{byte_end}/{file_size}",
+                "Content-Length": str(content_length),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-cache",
+            }
+            print(f"[RUDP] Range request: returning {status_code} with Content-Range")
+        else:
+            # Full file
+            status_code = 200
+            rudp_headers = {
+                "Content-Length": str(file_size),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-cache",
+            }
+            print(f"[RUDP] Full file request: returning {status_code} with Content-Length")
+        
+        return StreamingResponse(
+            gen,
+            status_code=status_code,
+            media_type="video/mp4",
+            headers=rudp_headers
+        )
 
 
 @app.get("/quality")
 async def get_quality():
-    """Get current DASH quality in real-time."""
+    """Get current DASH quality."""
     return {
         "protocol": PROTOCOL,
         "quality": quality_selector.get_current(),
@@ -559,6 +682,8 @@ async def health():
         "status": "healthy",
         "protocol": PROTOCOL,
         "quality": QUALITY_DISPLAY,
+        "packet_loss": PACKET_LOSS_PCT,
+        "origin_server": WEB_SERVER_ADDR,
     }
 
 
@@ -574,20 +699,27 @@ if __name__ == "__main__":
         except:
             MY_IP = "127.0.0.1"
     
+    # Resolve origin server via DNS
+    resolve_origin_server()
+    
     print(f"""
-╔═══════════════════════════════════════════════════════════╗
-║ UNIFIED EDGE PROXY - STARTING (FIXED WITH REAL-TIME DASH)║
-╠═══════════════════════════════════════════════════════════╣
+╔═════════════════════════════════════════════════════════════╗
+║ UNIFIED EDGE PROXY - WITH DNS & PACKET LOSS LOGGING        ║
+╠═════════════════════════════════════════════════════════════╣
 ║ Listening: {MY_IP}:5000
-║ Origin: {WEB_SERVER_ADDR[0]}:{WEB_SERVER_ADDR[1]}
+║ Origin Server: {WEB_SERVER_ADDR[0]}:{WEB_SERVER_ADDR[1]} (DNS resolved)
 ║ Protocol: {PROTOCOL.upper()}
-║ Quality: {QUALITY_DISPLAY}
+║ Packet Loss: {PACKET_LOSS_PCT}%
 ║
 ║ Features:
+║  ✓ DNS resolution for origin server
+║  ✓ Detailed packet loss visibility
 ║  ✓ Real-time DASH quality selection
-║  ✓ Fixed Content-Length handling
-║  ✓ Better error recovery
-╚═══════════════════════════════════════════════════════════╝
+║  ✓ HTTP 200 for RUDP (no Content-Length errors)
+║  ✓ HTTP 206 for TCP (Range requests)
+║
+║ Watch the logs to see packet loss events!
+╚═════════════════════════════════════════════════════════════╝
 """)
     
     uvicorn.run(
