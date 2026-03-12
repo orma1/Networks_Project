@@ -98,3 +98,9 @@ out/
 # Windows
 Thumbs.db
 Server_Proxy/videos/movie_1080.mp4
+
+# ==========================================
+# CUSTOM EXCLUSIONS
+# ==========================================
+*.db
+DNS/resolver/data/*.db
