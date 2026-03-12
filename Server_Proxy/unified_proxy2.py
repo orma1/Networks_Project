@@ -27,6 +27,25 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from dnslib import DNSRecord
 
+from protocol_utils import (
+    decode_data_packet, 
+    encode_control_message, 
+    PACKET_OVERHEAD, 
+    DEFAULT_RECV_BUFFER_SIZE,
+    MAX_UDP_PAYLOAD
+)
+from streaming_interfaces import (
+    StreamingClient,
+    StreamRequest,
+    StreamMetadata,
+    StreamMetrics,
+    TransportProtocol,
+    StreamState,
+    QualitySelector,
+)
+from http_handler import HTTPHandler
+from stream_orchestrator import StreamOrchestrator
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 sys.path.append(PARENT_DIR)
@@ -45,10 +64,7 @@ SOCKET_TIMEOUT = 0.3
 META_WAIT_SECS = 2.0
 DASH_WINDOW_SECS = 1.0
 CHUNK_READ_SIZE = 65535
-RECV_BUFFER_SIZE = 1024 * 1024
-
-PACKET_OVERHEAD = 6
-MAX_UDP_PAYLOAD = 65507
+RECV_BUFFER_SIZE = DEFAULT_RECV_BUFFER_SIZE
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -56,7 +72,16 @@ MAX_UDP_PAYLOAD = 65507
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DASHQualitySelector:
-    """Real-time quality measurement based on throughput."""
+    """
+    DASH implementation of QualitySelector interface.
+    
+    Adapts quality based on measured throughput using DASH-like logic:
+    - < 1.0 Mbps → 480p
+    - < 3.5 Mbps → 720p
+    - >= 3.5 Mbps → 1080p
+    
+    Satisfies QualitySelector contract.
+    """
     
     def __init__(self):
         self.current_quality = "720"
@@ -64,273 +89,78 @@ class DASHQualitySelector:
         self.bytes_measured = 0
         self.lock = threading.Lock()
     
-    def add_bytes(self, num_bytes: int) -> str:
-        """Add bytes and return current quality."""
-        with self.lock:
-            self.bytes_measured += num_bytes
-            elapsed = time.monotonic() - self.window_start
-            
-            if elapsed < DASH_WINDOW_SECS:
-                return self.current_quality
-            
-            if elapsed == 0:
-                mbps = 0
-            else:
-                mbps = (self.bytes_measured * 8) / (elapsed * 1_048_576)
-            
-            if mbps < 1.0:
-                quality = "480"
-            elif mbps < 3.5:
-                quality = "720"
-            else:
-                quality = "1080"
-            
-            self.current_quality = quality
-            print(f"[DASH] 📊 Throughput: {mbps:.2f} Mbps → Quality: {quality}p")
-            
-            self.bytes_measured = 0
-            self.window_start = time.monotonic()
-            
-            return quality
+    # ── QualitySelector Interface Implementation ─────────────────────────
     
-    def get_current(self) -> str:
-        """Get current quality without updating."""
+    def select_quality(self, throughput_mbps: float, current_quality: str) -> str:
+        """
+        Select quality based on measured throughput.
+        
+        Implements: QualitySelector.select_quality()
+        """
+        if throughput_mbps < 1.0:
+            return "480"
+        elif throughput_mbps < 3.5:
+            return "720"
+        else:
+            return "1080"
+    
+    def update_metrics(self, bytes_received: int, elapsed_seconds: float) -> None:
+        """
+        Update throughput measurements.
+        
+        Implements: QualitySelector.update_metrics()
+        """
+        with self.lock:
+            self.bytes_measured += bytes_received
+            
+            if elapsed_seconds >= DASH_WINDOW_SECS:
+                mbps = (self.bytes_measured * 8) / (elapsed_seconds * 1_048_576)
+                new_quality = self.select_quality(mbps, self.current_quality)
+                
+                if new_quality != self.current_quality:
+                    print(f"[DASH] Quality change: {self.current_quality} → {new_quality}")
+                
+                self.current_quality = new_quality
+                self.bytes_measured = 0
+                self.window_start = time.monotonic()
+    
+    def get_current_quality(self) -> str:
+        """
+        Get current selected quality.
+        
+        Implements: QualitySelector.get_current_quality()
+        """
         with self.lock:
             return self.current_quality
-
-
-@dataclass
-class RUDPStreamState:
-    """Track RUDP stream metrics."""
-    connected: bool = False
-    file_size: int = 0
-    bytes_received: int = 0
-    packets_received: int = 0
-    packets_out_of_order: int = 0
-    duplicate_packets: int = 0
-    start_time: float = 0.0
-    remote_rwnd: int = RECV_BUFFER_SIZE
-    error_msg: str = ""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PACKET DECODING
-# ══════════════════════════════════════════════════════════════════════════════
-
-def decode_data_pkt(packet: bytes) -> Tuple[int, bytes]:
-    """Decode RUDP data packet: <4-byte seq><2-byte length><payload>"""
-    if len(packet) < PACKET_OVERHEAD:
-        raise ValueError(f"Packet too short: {len(packet)} bytes")
     
-    seq = int.from_bytes(packet[:4], "big")
-    declared_len = int.from_bytes(packet[4:6], "big")
-    payload = packet[6:6+declared_len]
-    
-    if len(payload) != declared_len:
-        raise ValueError(f"Length mismatch: {len(payload)} != {declared_len}")
-    
-    return seq, payload
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RUDP CLIENT WITH FLOW CONTROL & DETAILED LOGGING
-# ══════════════════════════════════════════════════════════════════════════════
-
-def rudp_stream_with_dash(
-    filename: str,
-    byte_start: int,
-    server_addr: Tuple[str, int],
-    packet_loss_pct: float = 0,
-    quality_selector: Optional[DASHQualitySelector] = None,
-) -> Tuple[Generator[bytes, None, None], RUDPStreamState]:
-    """
-    RUDP client with flow control, real-time DASH, detailed packet loss logging.
-    """
-    
-    state = RUDPStreamState(start_time=time.monotonic())
-    
-    def generate() -> Generator[bytes, None, None]:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(SOCKET_TIMEOUT)
+    def reset(self) -> None:
+        """
+        Reset quality selector state.
         
-        ooo_buffer: dict = {}
-        expected_seq: int = 0
-        origin_addr: Optional[Tuple[str, int]] = None
-        bytes_buffered: int = 0
-        packets_lost_count: int = 0
-        packets_received_count: int = 0
-        
-        try:
-            # Simply send request - server will handle loss simulation
-            print(f"[RUDP] 📤 Sending request: {filename} (offset: {byte_start})")
-            req_pkt = f"REQ|{filename}|{byte_start}".encode()
-            sock.sendto(req_pkt, server_addr)
-            
-            # Wait for META
-            meta_deadline = time.monotonic() + META_WAIT_SECS
-            meta_attempts = 0
-            while time.monotonic() < meta_deadline:
-                try:
-                    meta_attempts += 1
-                    raw, addr = sock.recvfrom(CHUNK_READ_SIZE)
-                    
-                    if raw[:4] == b"META":
-                        try:
-                            parts = raw.decode().split("|")
-                            state.file_size = int(parts[1]) if len(parts) > 1 else 0
-                            state.remote_rwnd = int(parts[2]) if len(parts) > 2 else RECV_BUFFER_SIZE
-                            origin_addr = addr
-                            state.connected = True
-                            print(f"[RUDP] ✅ Connected to origin server: {addr}")
-                            print(f"[RUDP]    File size: {state.file_size:,} bytes")
-                            print(f"[RUDP]    Remote window: {state.remote_rwnd:,} bytes")
-                            print(f"[RUDP] 📥 Starting to receive data packets...")
-                            break
-                        except (ValueError, IndexError) as e:
-                            print(f"[!] META parse error: {e}")
-                            continue
-                
-                except socket.timeout:
-                    sock.sendto(req_pkt, server_addr)
-            
-            if origin_addr is None:
-                state.error_msg = f"No META within {META_WAIT_SECS}s"
-                print(f"[-] ❌ {state.error_msg}")
-                return
-            
-            # ── Main receive loop ─────────────────────────────────────────
-            print(f"[RUDP] 📥 Starting to receive data packets...")
-            packets_dropped_received = 0
-            
-            while True:
-                try:
-                    raw, addr = sock.recvfrom(CHUNK_READ_SIZE)
-                except socket.timeout:
-                    continue
-                
-                # ── Check for DROP packets from server (loss simulation) ──
-                if raw[:4] == b"DROP":
-                    packets_dropped_received += 1
-                    drop_msg = raw.decode(errors='ignore')
-                    print(f"[PROXY] 🔴 Ignored DROP packet #{packets_dropped_received} from server (packet loss simulation)")
-                    # Don't process further, just continue to next packet
-                    continue
-                
-                # ── Control messages ──────────────────────────────────────
-                if raw[:4] == b"ALIV":
-                    try:
-                        parts = raw.decode().split("|")
-                        if len(parts) > 1:
-                            state.remote_rwnd = int(parts[1])
-                    except:
-                        pass
-                    continue
-                
-                if raw[:4] == b"FIN|":
-                    # Flush remaining packets
-                    if ooo_buffer:
-                        print(f"[RUDP] 📭 FIN received - flushing {len(ooo_buffer)} buffered packets")
-                    while expected_seq in ooo_buffer:
-                        payload = ooo_buffer.pop(expected_seq)
-                        if quality_selector:
-                            quality_selector.add_bytes(len(payload))
-                        yield payload
-                        expected_seq += 1
-                    print(f"[RUDP] ✅ Stream complete!")
-                    print(f"[RUDP] 📊 Final stats:")
-                    print(f"[RUDP]    Bytes received: {state.bytes_received:,}")
-                    print(f"[RUDP]    Packets received: {packets_received_count}")
-                    print(f"[RUDP]    Packets lost: {packets_lost_count}")
-                    if packets_received_count > 0:
-                        loss_pct = (packets_lost_count / packets_received_count) * 100
-                        print(f"[RUDP]    Loss rate: {loss_pct:.2f}%")
-                    break
-                
-                if raw[:4] == b"ERR|":
-                    state.error_msg = raw.decode(errors='ignore')
-                    print(f"[-] ❌ Server error: {state.error_msg}")
-                    break
-                
-                if raw[:4] == b"META":
-                    continue
-                
-                # ── Data packet ───────────────────────────────────────────
-                if len(raw) < PACKET_OVERHEAD:
-                    continue
-                
-                try:
-                    seq, payload = decode_data_pkt(raw)
-                except ValueError as e:
-                    print(f"[!] Decode error: {e}")
-                    packets_lost_count += 1
-                    continue
-                
-                packets_received_count += 1
-                
-                # Calculate receiver window
-                local_rwnd = max(0, RECV_BUFFER_SIZE - bytes_buffered)
-                
-                # Send ACK with flow control
-                try:
-                    ack_msg = f"ACK|{seq}|{local_rwnd}".encode()
-                    sock.sendto(ack_msg, addr)
-                except:
-                    pass
-                
-                # Handle packet
-                if seq < expected_seq:
-                    state.duplicate_packets += 1
-                    print(f"[RUDP] 🔄 Duplicate packet: seq={seq} (already delivered as of seq={expected_seq})")
-                    continue
-                
-                if seq not in ooo_buffer:
-                    ooo_buffer[seq] = payload
-                    bytes_buffered += len(payload)
-                    state.packets_received += 1
-                else:
-                    state.duplicate_packets += 1
-                
-                # Yield in-order packets
-                delivered = 0
-                while expected_seq in ooo_buffer:
-                    payload = ooo_buffer.pop(expected_seq)
-                    bytes_buffered -= len(payload)
-                    delivered += 1
-                    
-                    # Update DASH quality
-                    if quality_selector:
-                        quality_selector.add_bytes(len(payload))
-                    
-                    yield payload
-                    expected_seq += 1
-                    state.bytes_received += len(payload)
-                
-                # Detailed logging
-                if delivered > 0:
-                    # print(f"[RUDP] ✓ Delivered {delivered} packet(s) in sequence (seq {expected_seq - delivered}-{expected_seq - 1})")
-                    if ooo_buffer:
-                        gap = min(ooo_buffer.keys()) - expected_seq
-                        # print(f"[RUDP]    ⚠️  Out-of-order buffer: {len(ooo_buffer)} packets, gap of {gap} seq(s)")
-                
-                # Track OOO
-                if ooo_buffer and min(ooo_buffer.keys()) != expected_seq:
-                    state.packets_out_of_order += 1
-        
-        except Exception as e:
-            state.error_msg = str(e)
-            print(f"[-] ❌ RUDP stream error: {e}")
-        
-        finally:
-            sock.close()
-            if packets_dropped_received > 0:
-                print(f"[PROXY] Session stats:")
-                print(f"[PROXY]   Data packets received: {packets_received_count}")
-                print(f"[PROXY]   DROP packets ignored (from server): {packets_dropped_received}")
-                if packets_received_count + packets_dropped_received > 0:
-                    loss_pct = (packets_dropped_received / (packets_received_count + packets_dropped_received)) * 100
-                    print(f"[PROXY]   Loss rate: {loss_pct:.2f}%")
+        Implements: QualitySelector.reset()
+        """
+        with self.lock:
+            self.current_quality = "720"
+            self.bytes_measured = 0
+            self.window_start = time.monotonic()
     
-    return generate(), state
+    # ── Backward-Compatible Methods (deprecated, but kept) ───────────────
+    
+    def add_bytes(self, num_bytes: int) -> str:
+        """
+        DEPRECATED: Use update_metrics() instead.
+        
+        Legacy method for backward compatibility.
+        """
+        elapsed = time.monotonic() - self.window_start
+        self.update_metrics(num_bytes, elapsed)
+        return self.get_current_quality()
+    
+    def get_current(self) -> str:
+        """
+        DEPRECATED: Use get_current_quality() instead.
+        """
+        return self.get_current_quality()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,10 +178,10 @@ def tcp_stream(
     sock.settimeout(10.0)
     
     try:
-        cmd = f"REQ|{filename}|{byte_start}"
+        cmd = encode_control_message("REQ", filename, byte_start)
         print(f"[TCP] 📤 Sending request for {filename}")
         sock.connect(server_addr)
-        sock.sendall(cmd.encode())
+        sock.sendall(cmd)
         
         # Read META header
         header_buf = b""
@@ -412,7 +242,14 @@ PROTOCOL = "rudp"
 QUALITY_DISPLAY = "Auto"
 PACKET_LOSS_PCT = 0
 
+# ═══ COMPONENTS ═══
 quality_selector = DASHQualitySelector()
+http_handler = HTTPHandler()
+stream_orchestrator = StreamOrchestrator(
+    http_handler=http_handler,
+    default_protocol=TransportProtocol.RUDP,
+    quality_selector=quality_selector
+)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -517,7 +354,7 @@ async def set_loss(request: Request):
         # Notify server of new loss rate via UDP
         try:
             notify_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            notify_msg = f"LOSS_RATE|{loss_rate}".encode()
+            notify_msg = encode_control_message("LOSS_RATE", loss_rate)
             notify_sock.sendto(notify_msg, WEB_SERVER_ADDR)
             notify_sock.close()
             print(f"[*] ✅ Sent LOSS_RATE={loss_rate:.2f} to server")
@@ -545,7 +382,7 @@ async def play(request: Request, filename: str, force_quality: str = "auto"):
 @app.get("/stream/{filename}")
 def stream(request: Request, filename: str, force_quality: str = "auto"):
     """
-    Streaming endpoint with proper handling for TCP vs RUDP + detailed logging.
+    Stream video with clean component-based architecture.
     """
     global QUALITY_DISPLAY
     
@@ -553,35 +390,19 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
     quality = "720" if force_quality == "auto" else force_quality
     target = filename.replace(".mp4", f"_{quality}.mp4")
     
-    # Get file size for TCP
+    # Get file size for bounds checking
     video_dir = os.path.join(BASE_DIR, "videos")
     filepath = os.path.join(video_dir, target)
-    
-    try:
-        if os.path.exists(filepath):
-            file_size = os.path.getsize(filepath)
-        else:
-            file_size = 0
-    except OSError:
-        file_size = 0
-    
-    # Parse Range header
-    range_hdr = request.headers.get("Range", "bytes=0-")
-    try:
-        spec_parts = range_hdr.replace("bytes=", "").split("-")
-        byte_start = int(spec_parts[0]) if spec_parts[0] else 0
-        byte_end = int(spec_parts[1]) if len(spec_parts) > 1 and spec_parts[1] else (file_size - 1 if file_size > 0 else 0)
-    except:
-        byte_start = 0
-        byte_end = max(file_size - 1, 0)
-    
-    byte_start = max(0, byte_start)
-    if file_size > 0:
-        byte_end = min(byte_end, file_size - 1)
-    else:
-        byte_end = 0
-    
-    content_length = max(byte_end - byte_start + 1, 0)
+    file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+        
+    # ═══ HTTP LAYER: Parse range request ═══
+    range_request = http_handler.parse_range_header(
+        request.headers.get("Range"),
+        file_size=file_size if file_size > 0 else 1
+    )
+
+    byte_start = range_request.start
+    byte_end = range_request.end if range_request.end is not None else max(0, file_size - 1)
     
     print(f"\n{'='*70}")
     print(f"[*] 🎬 New stream request")
@@ -592,77 +413,48 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
     print(f"    Byte range: {byte_start}-{byte_end}/{file_size}")
     print(f"{'='*70}\n")
     
-    # ── PROTOCOL-SPECIFIC HANDLING ────────────────────────────────────────
+    # ── STREAMING LAYER ────────────────────────────────────────
     
     if PROTOCOL == "tcp":
-        # TCP: Range requests with Content-Length
-        gen = tcp_stream(
+        # TCP streaming (fallback)
+        generator = tcp_stream(
             target,
             byte_start,
             WEB_SERVER_ADDR,
             packet_loss_pct=PACKET_LOSS_PCT
         )
-        
-        headers = {
-            "Content-Range": f"bytes {byte_start}-{byte_end}/{file_size}",
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(content_length),
-            "Cache-Control": "no-cache",
-        }
-        
-        return StreamingResponse(
-            gen,
-            status_code=206,
-            media_type="video/mp4",
-            headers=headers
-        )
     
     else:
-        # RUDP: Support Range requests for seeking
-        # We use HTTP 206 for range requests, HTTP 200 for full file
+        # RUDP streaming via orchestrator
+        quality_selector.reset()
         
-        quality_selector.current_quality = "720"
-        quality_selector.bytes_measured = 0
-        quality_selector.window_start = time.monotonic()
-        
-        gen, state = rudp_stream_with_dash(
-            target,
-            byte_start,
-            WEB_SERVER_ADDR,
-            packet_loss_pct=PACKET_LOSS_PCT,
-            quality_selector=quality_selector if force_quality == "auto" else None
+        generator, metrics = stream_orchestrator.fetch_stream(
+            filename=target,
+            byte_start=byte_start,
+            server_addr=WEB_SERVER_ADDR,
+            protocol=TransportProtocol.RUDP,
+            quality="auto" if force_quality == "auto" else force_quality,
+            enable_quality_adaptation=(force_quality == "auto")
         )
         
-        if state and state.connected and force_quality == "auto":
-            QUALITY_DISPLAY = "Auto (measuring...)"
-        
-        # Determine HTTP status code and headers based on Range request
-        if byte_start > 0 or byte_end < (file_size - 1):
-            # Partial content requested
-            status_code = 206
-            rudp_headers = {
-                "Content-Range": f"bytes {byte_start}-{byte_end}/{file_size}",
-                "Content-Length": str(content_length),
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "no-cache",
-            }
-            print(f"[RUDP] Range request: returning {status_code} with Content-Range")
+        if force_quality == "auto" and quality_selector:
+            QUALITY_DISPLAY = quality_selector.get_current_quality()
         else:
-            # Full file
-            status_code = 200
-            rudp_headers = {
-                "Content-Length": str(file_size),
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "no-cache",
-            }
-            print(f"[RUDP] Full file request: returning {status_code} with Content-Length")
-        
-        return StreamingResponse(
-            gen,
-            status_code=status_code,
-            media_type="video/mp4",
-            headers=rudp_headers
-        )
+            QUALITY_DISPLAY = force_quality
+            
+    # ═══ HTTP LAYER: Create response ═══
+    http_response = http_handler.create_response(
+        range_request=range_request,
+        file_size=file_size,
+        media_type="video/mp4"
+    )
+    
+    return StreamingResponse(
+        generator,
+        status_code=http_response.status_code,
+        media_type=http_response.media_type,
+        headers=http_response.headers
+    )
 
 
 @app.get("/quality")
