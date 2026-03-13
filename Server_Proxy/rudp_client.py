@@ -24,6 +24,7 @@ import threading
 from typing import Generator, Optional, Tuple, Dict
 from collections import defaultdict
 from dataclasses import dataclass, field
+import queue
 
 from protocol_utils import (
     decode_data_packet,
@@ -102,6 +103,7 @@ class RUDPClient(StreamingClient):
         self.recv_buffer_size = recv_buffer_size
         self.socket_timeout = socket_timeout
         self.max_buffer_packets = max_buffer_packets
+        self._data_queue = queue.Queue()
         
         # Connection state
         self.sock: Optional[socket.socket] = None
@@ -172,30 +174,30 @@ class RUDPClient(StreamingClient):
         return metadata
     
     def stream(self) -> Generator[bytes, None, None]:
-        """Stream data from server."""
+        """Stream data from server using a blocking queue."""
         self.state = StreamState.STREAMING
         start_time = time.monotonic()
         bytes_received = 0
         
         while self.active:
-            # Wait for data to be ready
-            self.data_ready.wait(timeout=0.1)
-            self.data_ready.clear()
-            
-            # Get ready packets
-            for payload in self.reassembler.get_ready_packets():
-                yield payload
-                bytes_received += len(payload)
+            try:
+                # This blocks the thread efficiently until data exists
+                # We use a 0.5s timeout just so we can check if self.active changed
+                payload = self._data_queue.get(timeout=0.5)
                 
-                # Update throughput
+                if payload is None: # This is our signal that the stream is finished
+                    break
+                    
+                yield payload
+                
+                # Update metrics
+                bytes_received += len(payload)
                 elapsed = time.monotonic() - start_time
                 if elapsed > 0:
-                    mbps = (bytes_received * 8) / (elapsed * 1_000_000)
-                    self._metrics.current_throughput_mbps = mbps
-            
-            # Check if done
-            if self.state == StreamState.CLOSED:
-                break
+                    self._metrics.current_throughput_mbps = (bytes_received * 8) / (elapsed * 1_000_000)
+                    
+            except queue.Empty:
+                continue # No data in 0.5s, check self.active and try again
     
     def get_metrics(self) -> StreamMetrics:
         """Get current streaming metrics."""
@@ -221,7 +223,7 @@ class RUDPClient(StreamingClient):
         while time.monotonic() < deadline:
             if self.metadata is not None:
                 return self.metadata
-            time.sleep(0.01)
+            time.sleep(0.001)
             
         return None
     
@@ -242,7 +244,6 @@ class RUDPClient(StreamingClient):
                     if msg:
                         if msg[0] == "META":
                             
-                            # 🔥 GEMINI'S FIX: Update the server address!
                             # This ensures ACKs go to the session's ephemeral port.
                             self.server_addr = addr 
                             
@@ -256,7 +257,10 @@ class RUDPClient(StreamingClient):
                         elif msg[0] == "FIN":
                             self.state = StreamState.CLOSED
                             self.active = False
+                            for payload in self.reassembler.get_ready_packets():
+                                self._fin_flush_buffer.append(payload)
                             self.data_ready.set()
+                            self._data_queue.put(None)
                     continue
                 
                 # 2. Process DATA packet
@@ -268,7 +272,7 @@ class RUDPClient(StreamingClient):
                 
                 if result:
                     seq, payload = result
-                    
+
                     self._metrics.packets_received += 1
                     self._metrics.bytes_transferred += len(payload)
                     
@@ -279,6 +283,9 @@ class RUDPClient(StreamingClient):
                     
                     prev_size = self.reassembler.get_buffer_size()
                     self.reassembler.add_packet(seq, payload)
+                    for ready_payload in self.reassembler.get_ready_packets():
+                        self._data_queue.put(ready_payload)
+                    self.data_ready.set()
                     curr_size = self.reassembler.get_buffer_size()
                     
                     if curr_size == prev_size:

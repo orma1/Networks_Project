@@ -80,13 +80,13 @@ if [[ -d "Server_Proxy" ]]; then
     pushd Server_Proxy >/dev/null
 
     echo "[*] Launching Origin Server..."
-    $PYTHON_CMD unified_server2.py &
+    $PYTHON_CMD server_app.py &
     PIDS+=($!)
     # Pause to let Origin get its DHCP lease and start listening
     sleep 2 
 
     echo "[*] Launching Proxy Node..."
-    $PYTHON_CMD unified_proxy2.py &
+    $PYTHON_CMD proxy_app.py &
     PIDS+=($!)
     
     popd >/dev/null
