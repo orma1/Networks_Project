@@ -5,6 +5,7 @@ import yaml
 from abc import ABC, abstractmethod
 from pathlib import Path
 from dnslib import RR
+from concurrent.futures import ThreadPoolExecutor
 
 class AbstractNameServer(ABC):
     def __init__(self, server_name, default_ip, config_filename, dnssec_enabled=False):
@@ -14,6 +15,10 @@ class AbstractNameServer(ABC):
         # Path Resolution
         self.project_root = Path(__file__).resolve().parent.parent
         self.config_path = self.project_root / "configs" / config_filename
+        
+        # Hot-Reloading State
+        self._zone_mtimes = {}
+        self._watcher_event = threading.Event()
         
         # Load Config and Zone Data
         self._load_config(default_ip)
@@ -31,6 +36,7 @@ class AbstractNameServer(ABC):
             self.ip = config['server'].get('bind_ip', default_ip)
             self.port = config['server'].get('bind_port', 53)
             self.buffer_size = config['server'].get('buffer_size', 512)
+            self.max_workers = config['server'].get('max_workers', 100)
             self.zone_directory_path = self.project_root / config['data'].get('zone_directory', 'zones/auth/')
 
     def _load_zone_data(self) -> dict:
@@ -40,6 +46,7 @@ class AbstractNameServer(ABC):
             sys.exit(1)
             
         zone_db = {}
+        new_mtimes = {}
         loaded_files = 0
         total_records = 0
 
@@ -53,6 +60,9 @@ class AbstractNameServer(ABC):
                 continue
 
             try:
+                # Track file modification time for hot-reloading
+                new_mtimes[str(zone_file)] = zone_file.stat().st_mtime
+                
                 with open(zone_file, 'r') as f:
                     zone_text = f.read()
                     
@@ -69,6 +79,8 @@ class AbstractNameServer(ABC):
             except Exception as e:
                 print(f"[ERROR] Failed to parse {zone_file.name}: {e}")
 
+        # Atomically update the watched timestamps
+        self._zone_mtimes = new_mtimes
         print(f"[*] Successfully loaded {total_records} total records across {loaded_files} files.")
         return zone_db
 
@@ -78,15 +90,44 @@ class AbstractNameServer(ABC):
         pass
 
     def _listening_loop(self):
-        print(f"[*] Server Active on {self.ip}:{self.port}")
+        print(f"[*] Server Active on {self.ip}:{self.port} (Max Workers: {self.max_workers})")
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            while self.running:
+                try:
+                    data, addr = self.server_sock.recvfrom(self.buffer_size)
+                    executor.submit(self.handle_query, data, addr, self.server_sock)
+                except OSError:
+                    break
+
+    def _zone_watcher_loop(self):
+        """Polls zone files every 5 seconds and hot-reloads them if changes are detected."""
         while self.running:
-            try:
-                data, addr = self.server_sock.recvfrom(self.buffer_size)
-                worker = threading.Thread(target=self.handle_query, args=(data, addr, self.server_sock))
-                worker.daemon = True
-                worker.start()
-            except OSError:
+            # Wait for 5 seconds, but wake up instantly if the server stops
+            self._watcher_event.wait(5.0)
+            if not self.running:
                 break
+                
+            try:
+                current_mtimes = {}
+                zone_dir = self.zone_directory_path
+                
+                if zone_dir.exists() and zone_dir.is_dir():
+                    for zone_file in zone_dir.glob("*.zone"):
+                        is_signed_file = zone_file.name.endswith(".signed.zone")
+                        if self.dnssec_enabled and not is_signed_file:
+                            continue
+                        if not self.dnssec_enabled and is_signed_file:
+                            continue
+                            
+                        current_mtimes[str(zone_file)] = zone_file.stat().st_mtime
+                
+                # If a file was added, deleted, or modified, trigger a hot reload
+                if current_mtimes != self._zone_mtimes:
+                    print("\n[*] Zone file change detected! Hot-reloading records...")
+                    self.zone_records = self._load_zone_data()
+            except Exception as e:
+                print(f"[ERROR] Zone watcher failed: {e}")
 
     def start(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -102,8 +143,16 @@ class AbstractNameServer(ABC):
             listener.daemon = True
             listener.start()
             
+            # Start the hot-reload watcher thread
+            watcher = threading.Thread(target=self._zone_watcher_loop)
+            watcher.daemon = True
+            watcher.start()
+            
+            # Persistent sleep event
+            sleep_event = threading.Event()
             while self.running:
-                threading.Event().wait(1)
+                sleep_event.wait(1)
+                
         except KeyboardInterrupt:
             self.stop()
         except OSError as e:
@@ -112,6 +161,7 @@ class AbstractNameServer(ABC):
     def stop(self):
         print(f"\n[*] Shutting down server...")
         self.running = False
+        self._watcher_event.set() # Unblock the watcher thread instantly
         if self.server_sock:
             self.server_sock.close()
         sys.exit(0)
