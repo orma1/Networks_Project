@@ -15,8 +15,24 @@ class ConfigLoader:
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
         
         with open(self.config_path, 'r') as f:
-            # SafeLoader is recommended for security
-            return yaml.safe_load(f)
+            # SafeLoader is recommended for security. Fallback to empty dict if file is blank.
+            config = yaml.safe_load(f) or {}
+
+        # --- Schema Validation ---
+        required_sections = ['server', 'upstream', 'behavior']
+        missing_sections = [sec for sec in required_sections if sec not in config]
+
+        if missing_sections:
+            raise ValueError(
+                f"[FATAL] Invalid configuration in {self.config_path}. "
+                f"Missing required top-level sections: {', '.join(missing_sections)}"
+            )
+        
+        # Initialize optional sections so downstream .get() chains don't fail
+        if 'storage' not in config:
+            config['storage'] = {}
+
+        return config
 
     def _ensure_data_dir(self):
         """Creates the data folder if it doesn't exist."""
@@ -69,15 +85,15 @@ class ConfigLoader:
     @property
     def cache_file_path(self) -> str:
         """Returns the ABSOLUTE path to the cache file."""
-        relative_path = self._settings.get('storage', {}).get('cache_file', 'dns_cache.pickle')
+        relative_path = self._settings['storage'].get('cache_file', 'dns_cache.pickle')
         # Join project root + relative path
         return str(self.project_root / relative_path)
 
     @property
     def save_interval(self) -> int:
-        return self._settings.get('storage', {}).get('save_interval', 10)
+        return self._settings['storage'].get('save_interval', 10)
 
     @property
     def cache_capacity(self) -> int:
         """Reads cache capacity from storage section, default 1000"""
-        return self._settings.get('storage', {}).get('cache_capacity', 1000)
+        return self._settings['storage'].get('cache_capacity', 1000)

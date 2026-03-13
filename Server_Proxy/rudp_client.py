@@ -217,7 +217,6 @@ class RUDPClient(StreamingClient):
         """Wait for META message from server."""
         deadline = time.monotonic() + timeout
         
-        # 🔥 CLAUDE'S FIX: Non-blocking poll for metadata
         while time.monotonic() < deadline:
             if self.metadata is not None:
                 return self.metadata

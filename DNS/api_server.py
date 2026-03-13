@@ -38,7 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- DEBUG HANDLER ADDED HERE ---
+# --- DEBUG HANDLER ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"\n[CRITICAL ERROR] 💥 Failed handling {request.method} {request.url}")
@@ -381,8 +381,6 @@ async def update_a_record(server_name: str, zone_name: str, record_id: str, payl
 # ==========================================
 # 5. SERVER RUNNER & CONFIG ENDPOINTS 
 # ==========================================
-resolver_ref = None
-
 @app.get("/api/config/{server_name}")
 async def get_server_config(server_name: str):
     try:
@@ -428,8 +426,7 @@ async def save_server_config(server_name: str, payload: ConfigPayload):
 
 class APIServer:
     def __init__(self, resolver, host="127.0.0.1", port=8000):
-        global resolver_ref
-        resolver_ref = resolver
+        app.state.resolver = resolver
         self.host = host
         self.port = port
         self.thread = None
