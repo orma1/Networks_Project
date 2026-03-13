@@ -5,6 +5,7 @@ import yaml
 from abc import ABC, abstractmethod
 from pathlib import Path
 from dnslib import RR
+from concurrent.futures import ThreadPoolExecutor
 
 class AbstractNameServer(ABC):
     def __init__(self, server_name, default_ip, config_filename, dnssec_enabled=False):
@@ -31,6 +32,8 @@ class AbstractNameServer(ABC):
             self.ip = config['server'].get('bind_ip', default_ip)
             self.port = config['server'].get('bind_port', 53)
             self.buffer_size = config['server'].get('buffer_size', 512)
+            # Default to 100 max threads to prevent exhaustion, but allow config override
+            self.max_workers = config['server'].get('max_workers', 100)
             self.zone_directory_path = self.project_root / config['data'].get('zone_directory', 'zones/auth/')
 
     def _load_zone_data(self) -> dict:
@@ -78,15 +81,17 @@ class AbstractNameServer(ABC):
         pass
 
     def _listening_loop(self):
-        print(f"[*] Server Active on {self.ip}:{self.port}")
-        while self.running:
-            try:
-                data, addr = self.server_sock.recvfrom(self.buffer_size)
-                worker = threading.Thread(target=self.handle_query, args=(data, addr, self.server_sock))
-                worker.daemon = True
-                worker.start()
-            except OSError:
-                break
+        print(f"[*] Server Active on {self.ip}:{self.port} (Max Workers: {self.max_workers})")
+        
+        # --- SECURITY/PERF FIX: Bounded Thread Pool ---
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            while self.running:
+                try:
+                    data, addr = self.server_sock.recvfrom(self.buffer_size)
+                    # Submit the task to the pool instead of spawning a raw thread
+                    executor.submit(self.handle_query, data, addr, self.server_sock)
+                except OSError:
+                    break
 
     def start(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
