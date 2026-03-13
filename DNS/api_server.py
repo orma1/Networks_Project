@@ -7,7 +7,8 @@ import traceback
 import yaml
 import sys
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Union
@@ -27,7 +28,7 @@ from DNS.dnssec_tools.zone_signer import sign_zone
 # ==========================================
 # 0. SETUP & PATHS
 # ==========================================
-app = FastAPI(title="DNS Resolver API")
+app = FastAPI(title="DNS Resolver API", debug=False)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +37,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- DEBUG HANDLER ADDED HERE ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"\n[CRITICAL ERROR] 💥 Failed handling {request.method} {request.url}")
+    print("="*60)
+    traceback.print_exc()
+    print("="*60)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"Unhandled Server Crash: {str(exc)}",
+            "type": str(type(exc).__name__)
+        }
+    )
+# --------------------------------
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if os.path.exists(os.path.join(CURRENT_DIR, "zones")):
@@ -421,7 +439,7 @@ class APIServer:
         self.thread = threading.Thread(
             target=uvicorn.run, 
             args=(app,), 
-            kwargs={"host": self.host, "port": self.port, "log_level": "critical"}
+            kwargs={"host": self.host, "port": self.port, "log_level": "critical"} 
         )
         self.thread.daemon = True
         self.thread.start()
