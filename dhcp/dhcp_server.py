@@ -1,8 +1,13 @@
+from enum import IntEnum
 from pathlib import Path
 import socket, yaml, time, threading, json, os, sys, queue
 from scapy.all import *
 
 # DHCP Server Implementation with Lease Management, Reservations, and Persistence
+class DHCPMessageType(IntEnum):
+    DISCOVER = 1
+    REQUEST  = 3
+    RELEASE  = 7
 class DHCPServer:
     def __init__(self):
         self.project_root = Path(__file__).resolve().parent.parent
@@ -20,6 +25,15 @@ class DHCPServer:
         self.client_to_ip = {data['client_id']: ip for ip, data in self.active_leases.items()}
         self.reservations = self.conf['reservations_loopback'] if self.conf['loopback'] else self.conf['reservations_outside']
         self.persistence_file = self.conf['persistence_file']
+        #if there were already leased IPs, we need to make sure the pool starts at the right place.
+        pool_start = list(map(int, self.current_pool_ip.split('.')))
+        for ip in self.active_leases:
+            octets = list(map(int, ip.split('.')))
+            if octets[:3] == pool_start[:3] and octets[3] >= pool_start[3]:
+                pool_start[3] = max(pool_start[3], octets[3] + 1)
+        #change the current pool accordingly
+        self.current_pool_ip = ".".join(map(str, pool_start))
+        #if all IPs are taken the get_next_ip will return None (untill we get back addresses)
 
     # Helper to save leases to disk without blocking the main thread
     def save_leases(self):
@@ -33,15 +47,15 @@ class DHCPServer:
                 print(f"[!] Save Error: {e}")
 
 
-    # Helper to load leases from disk at startup
+    
     def load_leases(self):
+        """Helper to load leases from disk at startup"""
         if os.path.exists(self.conf['persistence_file']):
             try:
                 with open(self.conf['persistence_file'], 'r') as f: return json.load(f)
             except: return {}
         return {}
     
-    # Background thread to clean up expired leases
     def lease_cleanup_thread(self):
             """Background thread to reclaim IPs when the lease time is up."""
             while self.running:
@@ -52,12 +66,10 @@ class DHCPServer:
                 # 1. LOCK FAST: Just identify what needs to be deleted
                 with self.lock:
                     expired_ips = [ip for ip, data in self.active_leases.items() if now > data['expiry']]
-
-                if not expired_ips:
-                    continue
+                    if not expired_ips:
+                        continue
 
                 # 2. PROCESS: Handle the deletions
-                with self.lock:
                     for ip in expired_ips:
                         client_id = self.active_leases[ip]['client_id']
                         print(f"\n[EXPIRE] Reclaiming {ip} from {client_id}")
@@ -71,13 +83,14 @@ class DHCPServer:
 
                 # 3. SAVE OUTSIDE: Writing to disk is slow; don't block the network while doing it
                 try:
-                    self.save_leases()
+                    self.work_queue.put(("save", None))
                 except Exception as e:
                     print(f"[!] Error saving leases: {e}")
 
     # Helper to get the next available IP for a client, considering reservations and reclaimed IPs
     def get_next_available_ip(self, client_id):
-        # Check reservations first, then active leases, then reclaimed IPs, and finally the pool
+        """Returns the next available IP for client_id, 
+        making sure to check reservations and reclaimed IPs."""
         with self.lock:
             if client_id in self.reservations:
                 return self.reservations[client_id]
@@ -85,15 +98,15 @@ class DHCPServer:
                 return self.client_to_ip[client_id]
             if self.available_reclaimed_ips:
                 return self.available_reclaimed_ips.pop(0)
-            if self.current_pool_ip in self.reservations:
+            reserved_ips = set(self.reservations.values())
                 # Skip reserved IPs in the pool
-                while self.current_pool_ip in self.reservations:
-                    octets = list(map(int, self.current_pool_ip.split('.')))
-                    if octets[3] < int(self.end_ip.split('.')[3]):
-                        octets[3] += 1
-                        self.current_pool_ip = ".".join(map(str, octets))
-                    else:
-                        return None
+            while self.current_pool_ip in reserved_ips:
+                octets = list(map(int, self.current_pool_ip.split('.')))
+                if octets[3] <= int(self.end_ip.split('.')[3]):
+                    octets[3] += 1
+                    self.current_pool_ip = ".".join(map(str, octets))
+                else:
+                    return None
             
             # Simple IP increment logic
             octets = list(map(int, self.current_pool_ip.split('.')))
@@ -105,18 +118,28 @@ class DHCPServer:
                 return assigned
             return None
 
-    # Background thread to send packets from the work queue
+
     def sender_thread(self):
+        """Background thread to send packets and save files from the work queue"""
         send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while self.running:
             try:
-                pkt_raw, target = self.work_queue.get(timeout=1)
-                send_sock.sendto(pkt_raw, target)
+                task = self.work_queue.get(timeout=1)
+                
+                # Check if the task is a request to save to disk
+                if task[0] == "save":
+                    self.save_leases()
+                else:
+                    # Otherwise, it's a packet that needs to be sent
+                    pkt_raw, target = task
+                    send_sock.sendto(pkt_raw, target)
+                    
                 self.work_queue.task_done()
             except queue.Empty: continue
 
-    # Main packet processing logic for DISCOVER, REQUEST, and RELEASE messages
+    
     def process_packet(self, pkt, addr):
+        """Main packet processing logic for DISCOVER, REQUEST, and RELEASE messages"""
         options = pkt[DHCP].options
         msg_type = next((opt[1] for opt in options if isinstance(opt, tuple) and opt[0] == 'message-type'), None)
         # We use client_id throughout the function
@@ -124,7 +147,7 @@ class DHCPServer:
         if not client_id:
             return
 
-        if msg_type == 1: # DISCOVER
+        if msg_type == DHCPMessageType.DISCOVER: # DISCOVER
             print(f"\n[DISCOVER] Received from PID: {client_id} at {addr}")
             offer_ip = self.get_next_available_ip(client_id)
             if offer_ip:
@@ -139,10 +162,18 @@ class DHCPServer:
                 # Work queue is used to avoid blocking the main thread while sending packets
                 self.work_queue.put((raw(reply), (addr[0], addr[1])))
 
-        elif msg_type == 3: # REQUEST
+        elif msg_type == DHCPMessageType.REQUEST: # REQUEST
             print(f"\n[REQUEST] Received from PID: {client_id}")
             target_ip = pkt.yiaddr if pkt.yiaddr != "0.0.0.0" else self.client_to_ip.get(client_id)
-            
+            if not target_ip:
+                print(f" |---> [NAK] No IP available for {client_id}")
+                nack = BOOTP(op=2, xid=pkt.xid) / DHCP(options=[
+                    ("message-type", "nak"),
+                    ("server_id", "127.0.0.1"),
+                    "end"
+                 ])
+                self.work_queue.put((raw(nack), (addr[0], addr[1])))
+                return
             # Check if the requested IP is valid and can be offered to the client and update the lease information
             if target_ip:
                 with self.lock:
@@ -156,9 +187,9 @@ class DHCPServer:
                 self.work_queue.put((raw(reply), (addr[0], addr[1])))
                 
                 # Save when a lease is actually created
-                self.save_leases()
+                self.work_queue.put(("save", None))
 
-        elif msg_type == 7: # RELEASE
+        elif msg_type == DHCPMessageType.RELEASE: # RELEASE
             # Release logic: Remove the lease and make the IP available again
             ip_to_release = self.client_to_ip.get(client_id)
             if ip_to_release:
@@ -167,11 +198,11 @@ class DHCPServer:
                     if client_id in self.client_to_ip: del self.client_to_ip[client_id]
                     self.available_reclaimed_ips.append(ip_to_release)
                 
-                self.save_leases() 
+                self.work_queue.put(("save", None)) 
                 print(f" |---> Success: IP {ip_to_release} returned to the pool.")
 
     def run(self):
-        # Start background threads for lease cleanup and packet sending
+        """Start background threads for lease cleanup and packet sending"""
         threading.Thread(target=self.lease_cleanup_thread, daemon=True).start()
         threading.Thread(target=self.sender_thread, daemon=True).start()
         try: 
