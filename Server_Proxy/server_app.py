@@ -71,7 +71,7 @@ class RUDPMetrics:
         duration = self.duration()
         return 0.0 if duration == 0 else (self.bytes_sent * 8) / (duration * 1_048_576)
     def loss_rate(self) -> float:
-        return 0.0 if self.packets_sent == 0 else 1.0 - (self.packets_acked / self.packets_sent)
+        return 0.0 if self.packets_sent == 0 else (self.packets_retransmitted / self.packets_sent)
 
 
 class RUDPSession(StreamingServer):

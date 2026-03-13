@@ -237,7 +237,6 @@ else:
 
 MY_IP = "127.0.0.1"
 SERVER_PORT = 9000
-WEB_SERVER_ADDR = ("127.0.0.13", 9000)  # Will be updated by DNS
 PROTOCOL = "rudp"
 QUALITY_DISPLAY = "Auto"
 PACKET_LOSS_PCT = 0
@@ -256,13 +255,12 @@ stream_orchestrator = StreamOrchestrator(
 # DNS RESOLUTION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def resolve_origin_server():
+def resolve_origin_server(server_name = "originserver.homelab", server_port = SERVER_PORT):
     """Resolve origin server address via DNS."""
-    global WEB_SERVER_ADDR
     
     try:
-        print(f"[DNS] 🔍 Resolving originserver.homelab via DNS (127.0.0.2:53)...")
-        ans = DNSRecord.question("originserver.homelab.").send("127.0.0.2", 53, timeout=2.0)
+        print(f"[DNS] 🔍 Resolving {server_name} via DNS (127.0.0.2:53)...")
+        ans = DNSRecord.question(server_name).send("127.0.0.2", 53, timeout=2.0)
         reply = DNSRecord.parse(ans)
         resolved_ip = None
         
@@ -272,17 +270,22 @@ def resolve_origin_server():
                 break
         
         if resolved_ip:
-            WEB_SERVER_ADDR = (resolved_ip, SERVER_PORT)
-            print(f"[DNS] ✅ Successfully resolved originserver.homelab to {resolved_ip}:{SERVER_PORT}")
+            answer = (resolved_ip, server_port)
+            print(f"[DNS] ✅ Successfully resolved {server_name} to {resolved_ip}:{server_port}")
+            return answer
         else:
             print(f"[DNS] ⚠️  No A record found in response, using default")
-            WEB_SERVER_ADDR = ("127.0.0.13", SERVER_PORT)
+            answer = ("127.0.0.13", server_port)
+            return answer
     
     except Exception as e:
         print(f"[DNS] ❌ Failed to resolve origin server via DNS: {e}")
-        print(f"[DNS] ⚠️  Using default address: 127.0.0.13:{SERVER_PORT}")
-        WEB_SERVER_ADDR = ("127.0.0.13", SERVER_PORT)
+        print(f"[DNS] ⚠️  Using default address: 127.0.0.13:{server_port}")
+        answer = ("127.0.0.13", server_port)
+        return answer
 
+
+WEB_SERVER_ADDR = resolve_origin_server()  
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
@@ -303,7 +306,7 @@ def get_context(request: Request, extra: dict = None) -> dict:
     ctx = {
         "request": request,
         "protocol": PROTOCOL.upper(),
-        "quality": QUALITY_DISPLAY,
+        "selected_quality": QUALITY_DISPLAY,
         "packet_loss": PACKET_LOSS_PCT,
         "movies": load_movies(),
     }
@@ -323,7 +326,7 @@ async def index(request: Request):
         return {
             "status": "ok",
             "protocol": PROTOCOL.upper(),
-            "quality": QUALITY_DISPLAY,
+            "selected_quality": QUALITY_DISPLAY,
             "packet_loss": PACKET_LOSS_PCT,
             "movies": load_movies()
         }
@@ -369,7 +372,7 @@ async def set_loss(request: Request):
 async def play(request: Request, filename: str, force_quality: str = "auto"):
     """Video player page."""
     if templates is None:
-        return {"status": "ok", "file": filename, "quality": force_quality}
+        return {"status": "ok", "file": filename, "selected_quality": force_quality}
     return templates.TemplateResponse(
         "index.html",
         get_context(request, {
@@ -462,7 +465,7 @@ async def get_quality():
     """Get current DASH quality."""
     return {
         "protocol": PROTOCOL,
-        "quality": quality_selector.get_current(),
+        "selected_quality": quality_selector.get_current(),
         "packet_loss": PACKET_LOSS_PCT,
     }
 
@@ -473,7 +476,7 @@ async def health():
     return {
         "status": "healthy",
         "protocol": PROTOCOL,
-        "quality": QUALITY_DISPLAY,
+        "selected_quality": QUALITY_DISPLAY,
         "packet_loss": PACKET_LOSS_PCT,
         "origin_server": WEB_SERVER_ADDR,
     }
