@@ -72,6 +72,9 @@ class ConfigLoader:
     def public_port(self):
         return self._settings['upstream'].get('public_port', 53)
 
+    @property
+    def enable_forwarding(self):
+        return self._settings['upstream'].get('enable_forwarding', False)
     # --- Getters for "behavior" section ---
     @property
     def default_ttl(self): 

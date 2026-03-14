@@ -3,18 +3,18 @@ $TTL 86400
 
 @ IN TXT "DNSKEY|257|pPXoAwa6Jdltu60+tq+dyxbZMXyemVDrX2Z0hdXFmtWpdTqP2i/GGz4WrwvLAxgykiXCuGKRZmE28BBCdbI/Rw=="
 @ IN TXT "DNSKEY|256|c6AJt650g0ZF48vMCjIhSzjLgkP9fIbwBxHC3sBsvLoaCaxNJQfeo4bVBAc+1VE1FBkBUVfqX/JbaK8to8gijg=="
-@ IN TXT "RRSIG|DNSKEY|257|MEYCIQDUPvZ4DU5OaQpNOq2DvTesWVt1kmTRTxmSvuQOrNgwvwIhALeg6MiZorn1zOgRoguf+9HW4GUu+cYcAZI4tSjmJoVI"
-@ IN TXT "RRSIG|DNSKEY|256|MEUCIQCmSESR81vYXGwLWP8X/r7iI0FQYcef8sWUmwJ20SEOfwIgL/LQT1MO5LxI8/ll7bJB1KQ8m09vHSNzc8cPV70y84M="
+@ IN TXT "RRSIG|DNSKEY|257|MEYCIQDBSVTvBrjKsIQFsqRI9gDPayV7YW75/ozQMGcKTje+zQIhAIyHYavSt35NCUQLVNAD4DnqAiSc4AHbzhiVPD4+AIgp"
+@ IN TXT "RRSIG|DNSKEY|256|MEUCIELi7lRjKD2Lpy6Ts2UBc1xPkS81/5O1UjLrP15ISSEeAiEAka1Ae0SXk2IjhqF6Qn5i/gLrNA673H9qpWmdfbmsBQ4="
 
-media.homelab.          86400   IN      SOA     ns1.media.homelab. admin.media.homelab. 2026031411 21600 3600 604800 86400
+media.homelab.          86400   IN      SOA     ns1.media.homelab. admin.media.homelab. 2026031414 21600 3600 604800 86400
 media.homelab.          86400   IN      NS      ns1.media.homelab.
-media.homelab. IN TXT "RRSIG|NS|MEUCIQDmlrvcZ5pMLAgdKY0NhN/2tvtG0VLPicjY8dPQ55ZbGAIgKSOmiH80yENmktd0qWDYZeATjRWXo8kryFr9ErXcMW8="
+media.homelab. IN TXT "RRSIG|NS|MEUCICJo/fHZlRQSIpFDVin/q4ZOtPSUDeKSxjuI8mYL20kAAiEAtB+2poz//Qfu+MosCUE7i7qxwA4+kYl0h6buFPaB9ZI="
 
 ns1.media.homelab.      86400   IN      A       127.0.0.5
-ns1.media.homelab. IN TXT "RRSIG|A|MEQCICWm2SwoQjLFNrXLedZBHTXuv77ytRm3cPl2dHifBz4JAiAQ4GXG/2PzNRBqDIlF73b06zXSp9rlTslyXCN4Fya5OQ=="
+ns1.media.homelab. IN TXT "RRSIG|A|MEUCIQC0lFn8XmEDxPIkyc6Q6XeH8pPrLca5N48FeSVVYP3bAQIgKCmaMMl8wfjNFbkzhsYrGf3uXFmHz32pOHFldEA4D7w="
 
-media.homelab.          10      IN      A       127.0.0.45
-media.homelab. IN TXT "RRSIG|A|MEYCIQCt5nZb0kEMOv0rUuEveF8f6uaKZ81efyvz3D+wqrRY3QIhAOmUCiaf2EpUXW/KDlfeUzyTI0+pCKI4rpSYNZJMu30q"
+media.homelab.          10      IN      A       127.0.0.48
+media.homelab. IN TXT "RRSIG|A|MEQCIBa6ZVJ5ZfFqb7Kn0U4WcNrUO/MIq+2ySn8UwIrthNkUAiBV5NVpUEcBluNDqvPxZuH4Ucm2lRf3p/iTYU2luB2dew=="
 
 www.media.homelab.      86400   IN      CNAME   media.homelab.
-www.media.homelab. IN TXT "RRSIG|CNAME|MEUCIBFjw9vidIesVwjZDtitxpRZeGD9tRYs5X/MjKQi7IMOAiEA2FXWg1nMSDoAv9xxt1VjHy7ZmOM7Y+7xr3Pxc5Q85dw="
+www.media.homelab. IN TXT "RRSIG|CNAME|MEYCIQCOYtcz8IObM60cQd8mBwti/dNjI81aP8wMNFkQr5XBzgIhAIjJByTTYLbibX09M34vcL3Lxd/VL5etRaeFpClXWVRn"

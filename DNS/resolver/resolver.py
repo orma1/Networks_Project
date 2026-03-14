@@ -145,26 +145,89 @@ class Resolver:
         return error_reply.pack(), None
 
     def _handle_cache_lookup(self, request, qname, qtype, wants_dnssec, addr, socket_ref):
-            with self.cache_lock:
-                cached_response = self.cache.get(qname, qtype)
-                if cached_response:
-                    reply = DNSRecord.parse(cached_response.pack())
-                    reply.header.id = request.header.id
-                    reply.header.aa = 0 
-                    if not wants_dnssec:
-                        self.strip_dnssec_records(reply)
+        with self.cache_lock:
+            cached_response = self.cache.get(qname, qtype)
+            if cached_response:
+                reply = DNSRecord.parse(cached_response.pack())
+                reply.header.id = request.header.id
+                reply.header.aa = 0 
+                if not wants_dnssec:
+                    self.strip_dnssec_records(reply)
+                
+                # Catch socket errors when sending response
+                try:
                     socket_ref.sendto(reply.pack(), addr)
-                    return True
+                except OSError as e:
+                    print(f"[DEBUG] Failed to send cached response to {addr}: {e}")
+                return True
+        return False
+    
+    def _should_forward(self, qname):
+        """
+        Determine if a query should be forwarded to public DNS.
+        Returns False for local-only domains that should never be forwarded.
+        """
+        qname_lower = qname.lower().rstrip('.')
+        
+        # Never forward our own TLD or subdomains
+        if qname_lower.endswith('.homelab') or qname_lower == 'homelab':
             return False
-
+        
+        # Never forward reverse DNS for private IPs
+        if qname_lower.endswith('.in-addr.arpa'):
+            # Check if it's a private IP range (127.x, 192.168.x, 10.x, 172.16-31.x)
+            if any(prefix in qname_lower for prefix in [
+                '127.in-addr.arpa',
+                '168.192.in-addr.arpa',  # 192.168.x.x
+                '10.in-addr.arpa',
+                '16.172.in-addr.arpa', '17.172.in-addr.arpa', '18.172.in-addr.arpa',
+                '19.172.in-addr.arpa', '20.172.in-addr.arpa', '21.172.in-addr.arpa',
+                '22.172.in-addr.arpa', '23.172.in-addr.arpa', '24.172.in-addr.arpa',
+                '25.172.in-addr.arpa', '26.172.in-addr.arpa', '27.172.in-addr.arpa',
+                '28.172.in-addr.arpa', '29.172.in-addr.arpa', '30.172.in-addr.arpa',
+                '31.172.in-addr.arpa'
+            ]):
+                return False
+        
+        # Never forward .local (mDNS)
+        if qname_lower.endswith('.local') or qname_lower == 'local':
+            return False
+        
+        return True
     def _fetch_upstream(self, request, qname):
+        # Always do iterative resolution FIRST
         upstream_data, auth_ip = self._resolve_iterative(request, qname)
+        
+        # If not found in our local hierarchy
         if upstream_data is None:
+            # Check if forwarding is enabled
+            if not self.config.enable_forwarding:
+                print(f"[*] {qname} not in local DNS, returning NXDOMAIN (forwarding disabled)")
+                nxdomain_reply = request.reply()
+                nxdomain_reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
+                return nxdomain_reply, None
+            
+            # Forwarding is enabled - check filter
+            if not self._should_forward(qname):
+                print(f"[*] Query for {qname} filtered, not forwarding to public DNS")
+                nxdomain_reply = request.reply()
+                nxdomain_reply.header.rcode = getattr(RCODE, 'NXDOMAIN')
+                return nxdomain_reply, None
+            
+            # Forward to public DNS
             target_ip = self.config.public_forwarder
             target_port = getattr(self.config, 'public_port', 53)
             print(f"[*] Forwarding to Public DNS ({target_ip})...")
-            upstream_data = self.forwarder.send_query(target_ip, target_port, request.pack())
-            auth_ip = None 
+            
+            try:
+                upstream_data = self.forwarder.send_query(target_ip, target_port, request.pack())
+                auth_ip = None
+            except socket.timeout:
+                print(f"[*] Public DNS timeout, returning SERVFAIL")
+                servfail_reply = request.reply()
+                servfail_reply.header.rcode = getattr(RCODE, 'SERVFAIL')
+                return servfail_reply, None
+                
         return DNSRecord.parse(upstream_data), auth_ip
 
     def _validate_dnssec(self, request, real_reply, qname, auth_ip, addr, socket_ref):
@@ -233,7 +296,13 @@ class Resolver:
 
         if not wants_dnssec:
             self.strip_dnssec_records(real_reply)
-        socket_ref.sendto(real_reply.pack(), addr)
+        
+        # Catch socket errors when sending response
+        try:
+            socket_ref.sendto(real_reply.pack(), addr)
+        except OSError as e:
+            # Client closed connection - this is fine, just log and continue
+            print(f"[DEBUG] Failed to send response to {addr}: {e}")
 
 
     def handle_query(self, data, addr, socket_ref):
@@ -325,10 +394,14 @@ class Resolver:
                 worker = threading.Thread(target=self.handle_query, args=(data, addr, self.server_socket))
                 worker.daemon = True
                 worker.start()
-            except OSError:
+            except OSError as e:
+                if self.running:  # Only log if we didn't intentionally stop
+                    print(f"[FATAL] Listener loop OSError: {e}")
                 break
             except Exception as e:
                 print(f"[ERROR] Listener loop: {e}")
+                import traceback
+                traceback.print_exc()
 
     def start(self):
         try:

@@ -7,6 +7,7 @@ upstream:
   root_server_port: 53
   public_forwarder: 8.8.8.8
   public_port: 53
+  enable_forwarding: false
 behavior:
   default_ttl: 60
   timeout: 2.0
