@@ -17,6 +17,9 @@ import time
 import random
 import yaml
 import threading
+
+import time
+
 from typing import Generator, Optional, Tuple
 from dataclasses import dataclass
 
@@ -505,6 +508,100 @@ class _SuppressKnownNoise(logging.Filter):
         return True
 
 # ══════════════════════════════════════════════════════════════════════════════
+# DNS DYNAMIC REGISTRATION
+# ══════════════════════════════════════════════════════════════════════════════
+def register_with_dns(my_ip: str, domain: str):
+    """Register this proxy's IP with the DNS API."""
+    import urllib.request
+    import urllib.error
+    import json
+    import time
+    
+    dns_api_url = "http://127.0.0.1:8000"
+    server_name = "auth"
+    
+    # Simple wait for DNS API
+    print(f"[DNS] Waiting for DNS API to be available...")
+    for attempt in range(10):
+        try:
+            req = urllib.request.Request(f"{dns_api_url}/api/zones/list/{server_name}")
+            with urllib.request.urlopen(req, timeout=2) as response:
+                if response.status == 200:
+                    print(f"[DNS] ✓ DNS API is ready")
+                    break
+        except:
+            if attempt < 9:
+                time.sleep(2)
+            else:
+                print(f"[DNS] ✗ DNS API unavailable")
+                return
+    
+    try:
+        # Step 1: Get A records
+        print(f"[DNS] Fetching A records for {domain}...")
+        req = urllib.request.Request(
+            f"{dns_api_url}/api/zone/{server_name}/{domain}/records/a"
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode('utf-8'))
+        
+        # Step 2: Find the record for this domain
+        a_record_id = None
+        current_ip = None
+        
+        for record in data.get("a_records", []):
+            rec_name = record.get("name", "").rstrip('.')
+            # Match either "media.homelab" or "@" (which represents the zone apex)
+            if rec_name == domain or rec_name == "@":
+                a_record_id = record.get("id")
+                current_ip = record.get("data")
+                break
+        
+        if not a_record_id:
+            print(f"[DNS] ✗ No A record found for {domain}")
+            print(f"[DNS] Available: {[r.get('name') for r in data.get('a_records', [])]}")
+            return
+        
+        # Step 3: Check if update needed
+        if current_ip == my_ip:
+            print(f"[DNS] ✓ A record already up to date ({my_ip})")
+            print(f"[DNS] Access: http://{domain}:5000")
+            return
+        
+        # Step 4: Update - use "@" to represent zone apex (prevents doubling)
+        print(f"[DNS] Updating: {domain} ({current_ip} → {my_ip})")
+        
+        payload = {
+            "name": "@",      # ← Changed from domain to "@"
+            "ip": my_ip,
+            "ttl": 10
+        }
+        
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            f"{dns_api_url}/api/zone/{server_name}/{domain}/records/a/{a_record_id}",
+            data=data,
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                print(f"[DNS] ✓ A record updated successfully")
+                print(f"[DNS] ✓ SOA serial incremented")
+                print(f"[DNS] Access your media player at:")
+                print(f"[DNS]   🌐 http://{domain}:5000")
+                print(f"[DNS]   🌐 http://www.{domain}:5000")
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ""
+        print(f"[DNS] ✗ HTTP Error {e.code}: {e.reason}")
+        print(f"[DNS] Details: {error_body}")
+    except Exception as e:
+        print(f"[DNS] ✗ Error: {e}")
+        
+# ══════════════════════════════════════════════════════════════════════════════
 # STARTUP
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -512,6 +609,8 @@ if __name__ == "__main__":
         try:
             v_net = VirtualNetworkInterface(client_name="ProxyNode")
             MY_IP = v_net.setup_network()
+            register_with_dns(MY_IP, domain="media.homelab")
+
         except:
             MY_IP = "127.0.0.1"
     

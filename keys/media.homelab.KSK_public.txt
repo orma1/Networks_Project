@@ -1,0 +1,5 @@
+Zone: media.homelab.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+pPXoAwa6Jdltu60+tq+dyxbZMXyemVDrX2Z0hdXFmtWpdTqP2i/GGz4WrwvLAxgykiXCuGKRZmE28BBCdbI/Rw==

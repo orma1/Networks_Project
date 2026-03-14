@@ -1,0 +1,5 @@
+Zone: media.homelab.
+Type: ZSK
+Flag: 256
+DNSKEY Base64:
+c6AJt650g0ZF48vMCjIhSzjLgkP9fIbwBxHC3sBsvLoaCaxNJQfeo4bVBAc+1VE1FBkBUVfqX/JbaK8to8gijg==

@@ -10,19 +10,57 @@ function Cleanup {
     exit
 }
 
+function Wait-For-DnsApi {
+    param(
+        [int]$MaxRetries = 20,
+        [int]$RetryDelay = 2
+    )
+    
+    Write-Host "[*] Waiting for DNS API to be ready..." -ForegroundColor Yellow
+    
+    for ($i = 1; $i -le $MaxRetries; $i++) {
+        try {
+            # Simple TCP port check - is port 8000 listening?
+            $tcpClient = New-Object System.Net.Sockets.TcpClient
+            $tcpClient.Connect("127.0.0.1", 8000)
+            $tcpClient.Close()
+            
+            Write-Host "[*] DNS API is ready! (Port 8000 is listening)" -ForegroundColor Green
+            return $true
+        }
+        catch {
+            if ($i -lt $MaxRetries) {
+                Write-Host "    [Attempt $i/$MaxRetries] Port 8000 not open, retrying in ${RetryDelay}s..." -ForegroundColor DarkGray
+                Start-Sleep -Seconds $RetryDelay
+            }
+        }
+    }
+    
+    Write-Host "[!] DNS API did not become ready after $MaxRetries attempts" -ForegroundColor Red
+    return $false
+}
+
 # 1. DHCP & Main Infrastructure
 Write-Host "[1/3] Starting DHCP and Main..." -ForegroundColor Cyan
 $processes += Start-Process python -ArgumentList "dhcp/dhcp_server.py" -PassThru -NoNewWindow
 $processes += Start-Process python -ArgumentList "main.py" -PassThru -NoNewWindow
-Start-Sleep -Seconds 2
+
+# Wait for DNS API to be fully ready
+Start-Sleep -Seconds 3
+if (-not (Wait-For-DnsApi -MaxRetries 20 -RetryDelay 2)) {
+    Write-Host "[!] Warning: DNS API not ready, proxy may fail to register" -ForegroundColor Yellow
+}
 
 # 2. Unified Services (Server & Proxy)
 Write-Host "[2/3] Starting Unified Services (Multi-Protocol Mode)..." -ForegroundColor Cyan
 if (Test-Path "Server_Proxy") {
     Push-Location "Server_Proxy"
     
-    # We no longer pass --protocol because the Python code handles it internally
+    # Start Origin Server first
     $processes += Start-Process python -ArgumentList "server_app.py" -PassThru -NoNewWindow
+    Start-Sleep -Seconds 2
+    
+    # Then start Proxy (now that DNS API is ready)
     $processes += Start-Process python -ArgumentList "proxy_app.py" -PassThru -NoNewWindow
     
     Pop-Location

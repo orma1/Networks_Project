@@ -1,26 +1,32 @@
 $ORIGIN homelab.
 $TTL 86400
 
-@ IN TXT "DNSKEY|257|xdIKOOwNcYfxOZNGWFvayd0Yy/YwrRvSv2tFD2YYy8NleSL0W2D1XbFsW9V1oxgu6bLr9fAErqJ08f4gQd4Kuw=="
-@ IN TXT "DNSKEY|256|obyWB/dfLRH19rIFMwumQ6uBQpmsfnYgvmJhefUzIGNWMqTjxMEF9w4jur5ttMwdBR1pZxZSDgssTUWhlLlvUg=="
-@ IN TXT "RRSIG|DNSKEY|257|MEUCIGyojL/RfbMaq1f3BVRwv+xEDYOFGWQrLARawr994BE/AiEAu1cG+QRLdpuiIoDKatnVYr2FBauS72RW7+jawr4c3aY="
-@ IN TXT "RRSIG|DNSKEY|256|MEUCIEJwZGGNJ0AoS8X8KyM4twnYNRgmU0pcm8JHH0XuP1Q5AiEA26EPvG6VbNMZ8HJinMdCH7LAJ8RK8pPa5rxb3xOnNYU="
+@ IN TXT "DNSKEY|257|TaYcaun3o/9l9k+Bdd0QU4ZEzp251MjgsalLCbG2eUlN5DBApnjgI440PuMF/COeQnHYVkvoB4K52BAZkfAz+w=="
+@ IN TXT "DNSKEY|256|cZM3k6Xg12NxZkUq4qpr9AsZE2ItbSmD+iYT1+7KeZisFt2FOmeuDd5Xkq+euCTBjSUZiQaGPXtovPYe9nnqfA=="
+@ IN TXT "RRSIG|DNSKEY|257|MEYCIQCTeXZpheviqNZW8uTYDGzn1XgDEJ+EXG4B+pMoKJNO8QIhAKRnwSTPWIH8J0dJVYbMzRdYvKIO2bVdPUWxKMVudLEt"
+@ IN TXT "RRSIG|DNSKEY|256|MEYCIQCdOYZlfnzB/3Ue5EBB9oYIV6NDfwBepPj7l/c1SFYqsgIhANZ7gVEVFPEwSpWB7N3H3DImjvq+YBSs26QsdlSGmDlk"
 
-test.homelab. IN TXT "DS|12399a9133ef534d4c147766f1b3078fa7e6dffb010c57ce4a5b1e07d5ae6ee0"
-test.homelab. IN TXT "RRSIG|DS|MEUCIGhyfE7DXaxaQdtFO4pOLPcdslxkYRKCemhVfMh3kmMyAiEA0mFvraYzxyu5yBjK8mGXooXrQq1+ATpadNfYf2tHtj4="
+test.homelab. IN TXT "DS|e4c4349853786e3c7e23ebddb7bc8ab5f080d9bf3d69534915e3f12fbf8edf61"
+test.homelab. IN TXT "RRSIG|DS|MEUCIQDUERvUMLuKKW9KHfsmzrHY+WU3tIrC7/Go87NakpHTlwIgUVqQnxAoTcjbSxi4zzPbVkeL0T/WvbegOgGItjgHMZQ="
 
-originserver.homelab. IN TXT "DS|8b0683394ad4306481b6eadbe5f27ba22581f1e01b79c5165c3cbd59ef1d03cc"
-originserver.homelab. IN TXT "RRSIG|DS|MEUCIQCJA69isnZL6zID3Tqa3qTrjG0L9JCpckjku4BS8d9zPAIgIT2q5fg5ljwwYPB3R8yHIEZUr0caBAIfvS6dWH1y+i8="
+originserver.homelab. IN TXT "DS|bae111e58aae5bc89cea25aff2f8b4475d918f2cbf9efa0c1eafd1596aeb3e64"
+originserver.homelab. IN TXT "RRSIG|DS|MEQCICZdKNLfpfye5tgIKdDC2FXsRJ5S23NoqDh9klPyyuXGAiBVGuEXyCGcl60vaQzP8xXt54enIBb25VDZhtoW3YUG/g=="
 
 homelab.                86400   IN      SOA     tld.homelab. admin.homelab. 2026031001 1800 900 604800 86400
 test.homelab.           86400   IN      NS      ns1.test.homelab.
-test.homelab. IN TXT "RRSIG|NS|MEUCIQD63CAHUiDGir91gzUZ7nDnaVk/0hJSuJ1PHGJhC90WQgIgaBVMGF3qrP04ulqoPxAc7F+kPlGIBNpMGm0iIBVIjHg="
+test.homelab. IN TXT "RRSIG|NS|MEYCIQDWprhX0L/Jb5NsGk6vqwDZ4PevBHLN09fA6hHEjTm23gIhAOFi+h6/17fQ4drR6OYmzEubLkbha6VMIIlOBidGvKFN"
 
 ns1.test.homelab.       86400   IN      A       127.0.0.5
-ns1.test.homelab. IN TXT "RRSIG|A|MEUCIGlB+JOD4fntuZ9WD4SScUxCaQCXqzThxoReCwejyjiQAiEA2MrZB8Wb2b41xy/soNBhDhHA/6m8OMdZIaqiv8l4Qxc="
+ns1.test.homelab. IN TXT "RRSIG|A|MEUCIA02i0NOzw1e4uIWLnUN4c1UIpiGlo4VkZma3NaApSUZAiEA6PNwATU0fXI7f/YOHCAW9Kq8yDWmdQ65KPyXnry1gsY="
 
 originserver.homelab.   86400   IN      NS      ns1.originserver.homelab.
-originserver.homelab. IN TXT "RRSIG|NS|MEYCIQCnKSx/uxAZ0MzbF91gA350LyXeknTSSQ2sg0ssY3HO2gIhAIbSOFH/8XUatPfczJMqlRSmeM7eoMn9RIdcgzxp/3zP"
+originserver.homelab. IN TXT "RRSIG|NS|MEQCIGKQ7RTZWQEWRdC3g4OFaBlALcRSPnCuCek2FypADm2VAiBRTK7zeP4J2aCLc9gNsYJnoWgd/dJs4U/lE/XjIrBRJA=="
 
 ns1.originserver.homelab. 86400   IN      A       127.0.0.5
-ns1.originserver.homelab. IN TXT "RRSIG|A|MEYCIQCcErr51F7Lds5giNFssJM8rf49SXOJ6gZ5rMIigSEX2AIhAM6Av/MMxArLUC65/VO13YDL97vkM7dExa7mU+PKxH7+"
+ns1.originserver.homelab. IN TXT "RRSIG|A|MEQCIHoWgFQC1BZ9/vFEd2mtR+HoZQUUdmDrk792QNvQswJNAiBr8jALfV0hBk7GEDxe9UyLJjUgWjUD5m9Xufj1kXea1A=="
+
+media.homelab.          86400   IN      NS      ns1.media.homelab.
+media.homelab. IN TXT "RRSIG|NS|MEQCID6rekjgxDZhaFoPYPmXSYBZb4ok64nsJadk2hKRzKu5AiAjrgtPRuVqXACl9fmGSOdgQNc9JT3CaX3zYaRr2A9zOA=="
+
+ns1.media.homelab.      86400   IN      A       127.0.0.5
+ns1.media.homelab. IN TXT "RRSIG|A|MEYCIQD5yClUk8wT+gAh3CuNBpXNqZr9gaV5Cr3Q7ta+FoNm6AIhAPmwjXcFWOrmbduxYXYM3CErxNoXyTJE3D7+Eg2oxKiP"

@@ -41,7 +41,7 @@ app.add_middleware(
 # --- DEBUG HANDLER ---
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    print(f"\n[CRITICAL ERROR] 💥 Failed handling {request.method} {request.url}")
+    print(f"\n[CRITICAL ERROR] Failed handling {request.method} {request.url}")
     print("="*60)
     traceback.print_exc()
     print("="*60)
@@ -151,7 +151,152 @@ def get_safe_config_path(server_name: str) -> str:
         raise ValueError("Invalid config path: Traversal attempt detected.")
         
     return target_path
-# -----------------------------------------------
+# ══════════════════════════════════════════════════════════════════════════════
+# SOA SERIAL MANAGEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+def update_soa_serial(zone_file_path: str, payload_records: list) -> list:
+    """
+    Updates SOA serial number following RFC 1035 conventions (YYYYMMDDnn format).
+    
+    Process:
+    1. Read current SOA serial from existing zone file (source of truth)
+    2. Validate payload SOA format
+    3. Generate new serial based on current date and existing serial
+    4. Update payload with new serial
+    
+    Args:
+        zone_file_path: Path to the zone file on disk
+        payload_records: List of DnsRecord Pydantic objects from the API payload
+        
+    Returns:
+        Updated list of records with incremented SOA serial
+        
+    RFC Compliance:
+    - Serial format: YYYYMMDDnn (YYYY=year, MM=month, DD=day, nn=revision 00-99)
+    - New serial must be greater than old serial (for proper zone transfer)
+    - Same-day updates increment nn (01→02→03...)
+    - New-day updates reset to nn=01
+    """
+    from datetime import datetime
+    import os
+    
+    # Step 1: Read current SOA from file (source of truth)
+    current_serial = None
+    if os.path.exists(zone_file_path):
+        try:
+            with open(zone_file_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and directives
+                    if line.startswith(';') or line.startswith('$') or not line:
+                        continue
+                    
+                    # Look for SOA record
+                    if 'SOA' in line.upper():
+                        # SOA might span multiple lines, read until we find the serial
+                        soa_content = line
+                        
+                        # If line doesn't contain all SOA fields, keep reading
+                        while soa_content.count('(') > soa_content.count(')'):
+                            next_line = f.readline().strip()
+                            if not next_line:
+                                break
+                            soa_content += ' ' + next_line
+                        
+                        # Parse SOA - format: "name SOA mname rname serial refresh retry expire minimum"
+                        # or "name IN SOA mname rname serial..."
+                        parts = soa_content.split()
+                        
+                        # Find SOA keyword position
+                        soa_index = next((i for i, p in enumerate(parts) if p.upper() == 'SOA'), -1)
+                        
+                        if soa_index >= 0 and len(parts) > soa_index + 3:
+                            # Serial is 3rd field after SOA (after mname and rname)
+                            serial_str = parts[soa_index + 3].replace('(', '').replace(')', '')
+                            try:
+                                current_serial = int(serial_str)
+                                print(f"[SOA] Current serial from file: {current_serial}")
+                                break
+                            except ValueError:
+                                pass
+        except Exception as e:
+            print(f"[SOA] Warning: Could not read current serial from file: {e}")
+    
+    # If we couldn't read serial from file, start fresh
+    if current_serial is None:
+        current_serial = int(datetime.now().strftime("%Y%m%d00"))
+        print(f"[SOA] No existing serial found, starting with: {current_serial}")
+    
+    # Step 2: Find and validate SOA record in payload
+    soa_record = None
+    soa_index = None
+    
+    for idx, rec in enumerate(payload_records):
+        # Access Pydantic object attributes (not .get())
+        if rec.type == 'SOA':
+            soa_record = rec
+            soa_index = idx
+            break
+    
+    if not soa_record:
+        print(f"[SOA] Warning: No SOA record in payload, skipping serial update")
+        return payload_records
+    
+    # Step 3: Parse SOA data from payload
+    # Format: "ns1.media.homelab. admin.media.homelab. 2024031401 3600 600 86400 60"
+    soa_data = soa_record.data
+    soa_parts = soa_data.split()
+    
+    if len(soa_parts) < 7:
+        print(f"[SOA] Warning: Invalid SOA format in payload (need 7+ fields, got {len(soa_parts)}), skipping serial update")
+        return payload_records
+    
+    # Step 4: Calculate new serial
+    try:
+        payload_serial = int(soa_parts[2])
+    except (ValueError, IndexError):
+        print(f"[SOA] Warning: Could not parse serial from payload, using file serial")
+        payload_serial = current_serial
+    
+    # Generate new serial based on RFC 1035 date format
+    today_base = int(datetime.now().strftime("%Y%m%d00"))
+    
+    # Determine new serial
+    if current_serial >= today_base and current_serial < today_base + 100:
+        # Current serial is from today, increment revision
+        new_serial = current_serial + 1
+        
+        # Validate it doesn't exceed 99 revisions in one day
+        if new_serial >= today_base + 100:
+            print(f"[SOA] Warning: Already at 99 revisions today, using timestamp fallback")
+            import time
+            new_serial = int(time.time())
+    else:
+        # Different day or old format, start fresh at revision 01
+        new_serial = today_base + 1
+    
+    # RFC compliance check: new serial MUST be greater than current serial
+    if new_serial <= current_serial:
+        print(f"[SOA] Warning: Generated serial {new_serial} not greater than current {current_serial}")
+        new_serial = current_serial + 1
+    
+    # Step 5: Update payload with new serial
+    soa_parts[2] = str(new_serial)
+    soa_record.data = ' '.join(soa_parts)
+    payload_records[soa_index] = soa_record
+    
+    # Step 6: Log the change
+    serial_str = str(new_serial)
+    if len(serial_str) == 10:  # Date format YYYYMMDDnn
+        serial_date = f"{serial_str[0:4]}-{serial_str[4:6]}-{serial_str[6:8]}"
+        serial_rev = serial_str[8:10]
+        print(f"[SOA] Serial updated: {current_serial} → {new_serial}")
+        print(f"[SOA]   Date: {serial_date}, Revision: {serial_rev}")
+    else:
+        print(f"[SOA] Serial updated: {current_serial} → {new_serial} (timestamp format)")
+    
+    return payload_records
 
 def validate_dns_records(records: List[DnsRecord]):
     for idx, rec in enumerate(records):
@@ -268,8 +413,11 @@ async def save_zone(server_name: str, zone_name: str, payload: ZoneData):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Update SOA serial before saving (triggers resolver cache invalidation)
+    payload.records = update_soa_serial(file_path, payload.records)
+
     try:
-        # 1. Write the raw file
+        # Write the zone file
         with open(file_path, "w") as f:
             f.write(f"$ORIGIN {payload.origin}\n")
             f.write(f"$TTL {payload.defaultTtl}\n\n")
