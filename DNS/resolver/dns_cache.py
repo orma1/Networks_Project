@@ -19,7 +19,10 @@ class DNSCache:
         self.save_interval: int = save_interval
         
         self._store: OrderedDict[Tuple[str, int], Tuple[DNSRecord, float]] = OrderedDict()
-        self._lock: threading.Lock = threading.Lock()
+        
+        # --- THREADING LOCKS ---
+        self._lock: threading.Lock = threading.Lock()     # Protects the in-memory dictionary
+        self._io_lock: threading.Lock = threading.Lock()  # Protects the disk to prevent overlapping writes
         
         # Persistence flags
         self._dirty: bool = False  # Has the cache changed since last save
@@ -81,7 +84,6 @@ class DNSCache:
             
         try:
             with open(self.filename, 'rb') as f:
-                # We load the raw dictionary from pickle
                 data = pickle.load(f)
                 
                 # Cleanup: Filter out expired items immediately on load
@@ -99,23 +101,28 @@ class DNSCache:
             print(f"[!] Failed to load cache: {e}")
 
     def _save_to_disk(self) -> None:
-        """The actual write operation (Blocking I/O)."""
-        try:
-            # Create a snapshot efficiently inside the lock
+        with self._io_lock:
             with self._lock:
                 if not self._dirty:
-                    return # Nothing to do
+                    return 
                 
                 snapshot = self._store.copy()
-                self._dirty = False # Reset flag
+                self._dirty = False # Reset flag 
             
-            # Write to disk OUTSIDE the lock (so we don't block 'get'/'put')
-            with open(self.filename, 'wb') as f:
-                pickle.dump(snapshot, f)
-            # print(f"[*] Auto-saved cache to disk.")
-            
-        except Exception as e:
-            print(f"[!] Auto-save failed: {e}")
+            try:
+                # 1. Write to a temporary file first (ATOMIC WRITE)
+                temp_filename = f"{self.filename}.tmp"
+                with open(temp_filename, 'wb') as f:
+                    pickle.dump(snapshot, f)
+                
+                os.replace(temp_filename, self.filename)
+                
+            except Exception as e:
+                # If the disk write fails, we MUST restore the dirty flag 
+                # so the data isn't silently lost forever.
+                with self._lock:
+                    self._dirty = True
+                print(f"[!] Auto-save failed: {e}")
 
     def _auto_save_loop(self) -> None:
         """Background worker function."""
@@ -126,4 +133,5 @@ class DNSCache:
     def stop(self) -> None:
         """Call this on server shutdown to ensure final save."""
         self._running = False
-        self._save_to_disk() # Force one last save
+        
+        self._save_to_disk()

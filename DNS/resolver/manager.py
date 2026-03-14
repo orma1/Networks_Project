@@ -19,13 +19,10 @@ class ResolverManager:
     def __init__(self, config_filename="resolver_config.yaml", dnssec_enabled=False):
         print("[*] Booting Resolver Manager...")
         
-        # 1. Load Config Once
         self.config = ConfigLoader(config_filename)
         
-        # 2. Inject Config into exactly ONE Resolver instance
         self.resolver = Resolver(self.config, dnssec_enabled)
         
-        # 3. Future Placeholder: self.api_server = APIServer(self.resolver)
         self.api_server = APIServer(self.resolver, host="127.0.0.1", port=8000)
 
         self._shutdown_requested = False

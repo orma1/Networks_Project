@@ -1,0 +1,5 @@
+Zone: delete_later.
+Type: KSK
+Flag: 257
+DNSKEY Base64:
+0ozKr0n1Ht/lg2LPj7Ib3wyqyXQHr6A3GoiFG0GPArr0gLndUVBbFfHAYDG2p9tdENqCNazOmBgMGe34+KKg6Q==

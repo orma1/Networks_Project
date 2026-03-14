@@ -283,6 +283,7 @@ class Resolver:
             try:
                 # STEP 1: CACHE LOOKUP
                 if self._handle_cache_lookup(request, qname, qtype, client_wants_dnssec, addr, socket_ref):
+                    print(f"[CACHE HIT] returning {QTYPE[qtype]} {qname} from cache.")
                     return 
 
                 print(f"[CACHE MISS] Resolving {QTYPE[qtype]} {qname}...")

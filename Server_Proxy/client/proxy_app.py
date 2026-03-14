@@ -20,6 +20,7 @@ import threading
 from typing import Generator, Optional, Tuple
 from dataclasses import dataclass
 
+import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
@@ -484,9 +485,29 @@ async def health():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Filter to suppress specific log messages (like Content-Length errors from HTTP)
+# ══════════════════════════════════════════════════════════════════════════════
+class _SuppressKnownNoise(logging.Filter):
+    _suppress = [
+        "Too little data for declared Content-Length",
+        "WinError 10054",
+        "An existing connection was forcibly closed by the remote host",
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if any(s in msg for s in self._suppress):
+            return False
+        if record.exc_info:
+            import traceback
+            exc_text = "".join(traceback.format_exception(*record.exc_info))
+            if any(s in exc_text for s in self._suppress):
+                return False
+        return True
+
+# ══════════════════════════════════════════════════════════════════════════════
 # STARTUP
 # ══════════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
     if VirtualNetworkInterface:
         try:
@@ -517,7 +538,11 @@ if __name__ == "__main__":
 ║ Watch the logs to see packet loss events!
 ╚═════════════════════════════════════════════════════════════╝
 """)
-    
+
+    _noise_filter = _SuppressKnownNoise()
+    logging.getLogger("uvicorn.error").addFilter(_noise_filter)
+    logging.getLogger("asyncio").addFilter(_noise_filter)
+
     uvicorn.run(
         app,
         host=MY_IP,

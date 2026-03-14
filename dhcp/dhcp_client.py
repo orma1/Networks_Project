@@ -1,5 +1,6 @@
 import socket, os, random, time, sys
 from scapy.all import *
+from dhcp_helper import perform_dora
 
 class DHCPClient:
     def __init__(self):
@@ -20,11 +21,6 @@ class DHCPClient:
         print(f"[!] New APIPA: {self.ip}")
         self.is_apipa = True
 
-    # Helper to print details from DHCP OFFER/ACK
-    def print_details(self, pkt):
-        opts = {opt[0]: opt[1] for opt in pkt[DHCP].options if isinstance(opt, tuple)}
-        print(f"\n[+] NEW CONFIG: IP={pkt.yiaddr} | SUBNET={opts.get('subnet_mask')} | GW={opts.get('router')} |DNS={opts.get('name_server')}")
-
     # Release IP back to the server when the client exits
     def release_ip(self):
         """Sends DHCP Message Type 7 (Release) to the server."""
@@ -42,33 +38,10 @@ class DHCPClient:
                 if self.is_apipa is False:
                     print(f"[*] PID {self.my_pid} searching for DHCP server...")
                 try:
-                    # Generate a random transaction ID for each client instance
-                    xid = random.getrandbits(32)
-                    disc = BOOTP(xid=xid)/DHCP(options=[("message-type", "discover"), self.client_id, "end"])
-                    self.sock.sendto(raw(disc), ("127.0.0.1", 6700))
-                    
-                    # Try to get OFFER
-                    data, _ = self.sock.recvfrom(2048)
-                    offer = BOOTP(data)
-                    self.print_details(offer)
-                    
-                    # Send REQUEST for the offered IP
-                    req = BOOTP(xid=xid, yiaddr=offer.yiaddr)/DHCP(options=[("message-type", "request"), self.client_id, "end"])
-                    self.sock.sendto(raw(req), ("127.0.0.1", 6700))
-                    
-                    # Try to get ACK
-                    # FIXED: Changed 'lease_index' logic to correctly find the index of the lease_time option
-                    lease_index = next(i for i, opt in enumerate(offer[DHCP].options) if isinstance(opt, tuple) and opt[0] == "lease_time")
-                    lease = offer.getlayer(DHCP).options[lease_index]
-                    data, _ = self.sock.recvfrom(2048)
-                    self.ip, self.is_apipa = offer.yiaddr, False
-
-                    # Logic to extract lease time from the ACK (if present) and print details
-                    if lease[0] == "lease_time":
-                        self.lease = lease[1]
+                    self.ip, self.lease, opts = perform_dora(self.sock, self.client_id)
+                    print(f"\n[+] NEW CONFIG: IP={self.ip} | SUBNET={opts.get('subnet_mask')} | GW={opts.get('router')} | DNS={opts.get('name_server')}")
                     print(f"[*] PID {self.my_pid} successfully bound to {self.ip}")
                     self.is_apipa = False
-                
                 # No response from server, fallback to APIPA
                 except (socket.timeout, ConnectionResetError, OSError):
                     if self.is_apipa is False:
@@ -88,9 +61,8 @@ class DHCPClient:
 
                 # If renewal fails, revert to APIPA logic
                 except Exception:
-                    print("[!] Renewal failed. Reverting to APIPA logic.")
-                    self.get_apipa_ip()
-                    self.ip, self.is_apipa = None, True
+                    print("[!] Renewal failed. Will retry DHCP discovery...")
+                    self.ip, self.is_apipa = None, False
 
 if __name__ == "__main__":
     try: DHCPClient().run()
