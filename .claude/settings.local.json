@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"D:\\\\Development\\\\network_final\\\\Networks_Project\\\\DNS\" -name \"*.yaml\" -o -name \"*.yml\" 2>/dev/null | head -20)",
+      "Bash(find \"D:\\\\Development\\\\network_final\\\\Networks_Project\\\\DNS\\\\zones\" -name \"*.zone\" 2>/dev/null | head -5)"
+    ]
+  }
+}

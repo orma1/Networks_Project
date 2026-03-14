@@ -9,7 +9,7 @@ upstream:
   public_port: 53
   enable_forwarding: false
 behavior:
-  default_ttl: 60
+  default_ttl: 15
   timeout: 2.0
   enable_logging: true
 storage:

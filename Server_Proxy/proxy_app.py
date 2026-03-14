@@ -600,7 +600,30 @@ def register_with_dns(my_ip: str, domain: str):
         print(f"[DNS] Details: {error_body}")
     except Exception as e:
         print(f"[DNS] ✗ Error: {e}")
-        
+
+
+def _wait_for_dns(my_ip: str, domain: str, max_wait: int = 30) -> bool:
+    """Block until the local resolver serves the correct IP for domain, or timeout."""
+    import time as _time
+    deadline = _time.time() + max_wait
+    attempt = 0
+    while _time.time() < deadline:
+        attempt += 1
+        try:
+            ans = DNSRecord.question(domain).send("127.0.0.2", 53, timeout=2.0)
+            reply = DNSRecord.parse(ans)
+            resolved = next((str(rr.rdata) for rr in reply.rr if rr.rtype == 1), None)
+            if resolved == my_ip:
+                print(f"[DNS] ✅ Propagation confirmed: {domain} → {my_ip} (attempt {attempt})")
+                return True
+            print(f"[DNS] ⏳ Waiting for DNS propagation... got {resolved}, want {my_ip}")
+        except Exception as e:
+            print(f"[DNS] ⏳ Resolver not responding yet: {e}")
+        _time.sleep(2)
+    print(f"[DNS] ⚠️  DNS propagation timed out after {max_wait}s. Starting anyway.")
+    return False
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STARTUP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -610,6 +633,7 @@ if __name__ == "__main__":
             v_net = VirtualNetworkInterface(client_name="ProxyNode")
             MY_IP = v_net.setup_network()
             register_with_dns(MY_IP, domain="media.homelab")
+            _wait_for_dns(MY_IP, "media.homelab")
 
         except:
             MY_IP = "127.0.0.1"

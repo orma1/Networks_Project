@@ -292,7 +292,10 @@ class Resolver:
         with self.cache_lock:
             if real_reply.header.rcode == 0:
                 cache_clone = DNSRecord.parse(real_reply.pack())
-                self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))
+                record_ttls = [rr.ttl for rr in real_reply.rr if rr.ttl > 0]
+                effective_ttl = min(record_ttls) if record_ttls else getattr(self.config, 'default_ttl', 60)
+                effective_ttl = min(effective_ttl, getattr(self.config, 'default_ttl', 60))
+                self.cache.put(qname, qtype, cache_clone, effective_ttl)
 
         if not wants_dnssec:
             self.strip_dnssec_records(real_reply)
@@ -395,9 +398,11 @@ class Resolver:
                 worker.daemon = True
                 worker.start()
             except OSError as e:
-                if self.running:  # Only log if we didn't intentionally stop
-                    print(f"[FATAL] Listener loop OSError: {e}")
-                break
+                if not self.running:
+                    break  # Intentional shutdown
+                # WinError 10054 and similar transient errors: log and keep running
+                print(f"[WARN] Listener loop transient OSError (continuing): {e}")
+                continue
             except Exception as e:
                 print(f"[ERROR] Listener loop: {e}")
                 import traceback
