@@ -4,7 +4,7 @@ server_config:
   packet_loss_chance: 0.05  # Fake packet loss
   keep_alive_interval: 5    # Seconds
   origin_ip: "127.0.0.1"
-  base_directory: "./shared/videos" 
+  base_directory: "videos"  
 
 movies:
   - id: 1

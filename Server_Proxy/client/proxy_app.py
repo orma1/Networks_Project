@@ -90,6 +90,7 @@ class DASHQualitySelector:
         self.window_start = time.monotonic()
         self.bytes_measured = 0
         self.lock = threading.Lock()
+        
     
     # ── QualitySelector Interface Implementation ─────────────────────────
     
@@ -296,7 +297,7 @@ WEB_SERVER_ADDR = resolve_origin_server()
 def load_movies():
     """Load movies from config."""
     try:
-        path = os.path.join(BASE_DIR, "movies.yaml")
+        path = os.path.join(PARENT_DIR, "shared/configs/movies.yaml")
         with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f).get("movies", [])
     except:
@@ -396,7 +397,7 @@ def stream(request: Request, filename: str, force_quality: str = "auto"):
     target = filename.replace(".mp4", f"_{quality}.mp4")
     
     # Get file size for bounds checking
-    video_dir = os.path.join(BASE_DIR, "videos")
+    video_dir = os.path.join(PARENT_DIR, "shared", "videos")
     filepath = os.path.join(video_dir, target)
     file_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
         
@@ -513,6 +514,7 @@ if __name__ == "__main__":
         try:
             v_net = VirtualNetworkInterface(client_name="ProxyNode")
             MY_IP = v_net.setup_network()
+            
         except:
             MY_IP = "127.0.0.1"
     

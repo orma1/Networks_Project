@@ -32,7 +32,7 @@ from Server_Proxy.server.file_repository import LocalFileRepository
 from Server_Proxy.client.session_manager import SimpleSessionManager, SessionInfo
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VIDEO_DIR = os.path.join(BASE_DIR, "videos")
+VIDEO_DIR = os.path.join(BASE_DIR, "shared", "videos")
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 sys.path.append(PARENT_DIR)
 sys.path.append(os.path.join(PARENT_DIR, "dhcp"))
@@ -311,25 +311,38 @@ class TCPHandler:
             conn.close()
 
 class UnifiedServer:
-    def __init__(self, config_file: str = "configs/dhcp_config.yaml"):
+    def __init__(self, config_file = os.path.join(PARENT_DIR, "shared", "configs", "movies.yaml")):
+
         self.active = True
         signal.signal(signal.SIGINT, self._on_sigint)
         
         try:
             with open(config_file, "r") as f:
-                config = yaml.safe_load(f)
-                self.port = config.get("server_config", {}).get("origin_port", 9000)
-                video_dir = config.get("server_config", {}).get("base_directory", "./videos")
-        except:
-            self.port, video_dir = 9000, "./videos"
+                    config = yaml.safe_load(f)
+                    self.port = config.get("server_config", {}).get("origin_port", 9000)
+            current_script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Build path to shared/videos relative to the script location
+            default_video_dir = os.path.abspath(os.path.join(current_script_dir, "..", "shared", "videos"))
+
+            # Use the config value if it exists, otherwise use the absolute path we just built
+            video_dir = config.get("server_config", {}).get("base_directory", default_video_dir)
+        except Exception as e:
+            print(f"[!] Failed to load config, using defaults: {e}")
+            self.port, video_dir = 9000, os.path.join(BASE_DIR, "shared", "videos")
             
         self.my_ip = VirtualNetworkInterface(client_name="OriginServer", fixed_id="OriginServer").setup_network() if VirtualNetworkInterface else "127.0.0.1"
         self.data_loss_rate = float(os.environ.get("DATA_LOSS_RATE", DATA_LOSS_RATE))
         self.ack_loss_rate = float(os.environ.get("ACK_LOSS_RATE", ACK_LOSS_RATE))
         self.latency_ms = int(os.environ.get("LATENCY_MS", LATENCY_MS))
-        
-        try: self.file_repo = LocalFileRepository(base_dir=video_dir)
-        except: self.file_repo = None
+
+
+
+        try:
+            self.file_repo = LocalFileRepository(default_video_dir)
+        except Exception as e:
+            print(f"[!] Failed to initialize file repository: {e}")
+            self.file_repo = None
 
         self.session_manager = SimpleSessionManager(max_sessions=100)
         
