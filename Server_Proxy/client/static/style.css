@@ -1,0 +1,178 @@
+:root {
+  /* Soft Bright Mode */
+  --background: #f0f2f5; 
+  --card: #ffffff; 
+  --foreground: #1e293b; 
+  --muted-foreground: #64748b;
+  --border: #e2e8f0; 
+  --primary: #ffc0cb; /* Solid Pink Light */
+  --primary-foreground: #000000;
+  --secondary: #87ceeb;
+  --radius: 12px;
+  --font-sans: 'Poppins', sans-serif;
+  --font-mono: 'Roboto Mono', monospace;
+}
+
+.dark {
+  /* Dark Mode Palette */
+  --background: #1a1d23;
+  --card: #2f3436;
+  --foreground: #e5e5e5;
+  --muted-foreground: #94a3b8;
+  --border: #444444;
+  --primary: #ff99cc; /* Solid Pink Dark */
+  --primary-foreground: #000000;
+  --secondary: #33cc33;
+}
+
+body { 
+    background-color: var(--background); 
+    font-family: var(--font-sans); 
+    color: var(--foreground);
+    margin: 0;
+    transition: background-color 0.3s, color 0.3s;
+    min-height: 100vh;
+}
+
+.container { max-width: 1000px; margin: 0 auto; padding: 40px 20px; }
+
+/* Header & Toggle */
+.header-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.mode-toggle-btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--foreground);
+    padding: 10px 18px;
+    border-radius: 50px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: 0.2s;
+}
+
+/* Solid Pink Buttons */
+.btn-toggle, .btn-primary-solid {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: none;
+    padding: 14px 28px;
+    border-radius: var(--radius);
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn-toggle:hover { opacity: 0.9; transform: translateY(-1px); }
+.full-width { width: 100%; box-sizing: border-box; }
+
+/* Visualizer Boxes */
+.flow-container {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 35px;
+    margin-bottom: 30px;
+    border: 1px solid var(--border);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.node { 
+    flex: 1;
+    padding: 15px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: rgba(0,0,0,0.02);
+}
+.dark .node { background: rgba(255,255,255,0.02); }
+
+.node i { font-size: 1.8rem; color: var(--secondary); margin-bottom: 8px; display: block; text-align: center; }
+.node span { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted-foreground); text-transform: uppercase; display: block; text-align: center; }
+.node b { display: block; font-size: 0.95rem; text-align: center; }
+
+.proxy-node { border: 2px dashed var(--primary); background: transparent !important; }
+
+/* Moving Arrows */
+.arrow { 
+    color: var(--primary); 
+    font-size: 1.5rem; 
+    margin: 0 15px;
+    animation: slideArrow 2s infinite ease-in-out;
+}
+
+@keyframes slideArrow {
+    0% { transform: translateX(-5px); opacity: 0.3; }
+    50% { transform: translateX(5px); opacity: 1; }
+    100% { transform: translateX(-5px); opacity: 0.3; }
+}
+
+/* Status & Layout */
+.status-bar { display: flex; gap: 12px; margin-bottom: 30px; justify-content: flex-start; }
+.status-tag { 
+    padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 500;
+    border: 1px solid var(--border); background: var(--card);
+}
+
+.movie-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+.movie-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 25px; text-align: left;
+}
+
+.video-container { background: #000; border-radius: 24px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 20px; }
+video { width: 100%; display: block; }
+.playing-info { background: var(--card); padding: 25px; display: flex; justify-content: space-between; align-items: center; }
+
+input[type=range] { accent-color: var(--primary); width: 100%; cursor: pointer; }
+
+/* Quality Select with Tactile Texture */
+.quality-select {
+    appearance: none;
+    background: rgba(30, 41, 59, 0.8); /* Semi-transparent base */
+    color: white;
+    border: 2px solid var(--primary);
+    padding: 10px 40px 10px 15px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* Subtle Texture Effects */
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 4px 6px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(4px);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.quality-select:hover {
+    background: rgba(51, 65, 85, 0.9);
+    border-color: var(--secondary);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 0 15px rgba(255, 153, 204, 0.3);
+    transform: translateY(-1px);
+}
+
+/* Ensure the arrow icon inside the wrapper matches the vibe */
+.select-wrapper i {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    font-size: 0.8rem;
+    color: var(--primary);
+    transition: color 0.3s;
+}
+
+.select-wrapper:hover i {
+    color: var(--secondary);
+}

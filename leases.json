@@ -1,10 +1,10 @@
 {
     "127.0.0.13": {
-        "expiry": 1773418681.16021,
+        "expiry": 1773492271.4444053,
         "client_id": "OriginServer"
     },
     "127.0.0.30": {
-        "expiry": 1773418681.6053307,
-        "client_id": "ProxyNode-24372-2710"
+        "expiry": 1773492272.4665782,
+        "client_id": "ProxyNode-7608-3579"
     }
 }

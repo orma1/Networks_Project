@@ -22,8 +22,8 @@ if (Test-Path "Server_Proxy") {
     Push-Location "Server_Proxy"
     
     # We no longer pass --protocol because the Python code handles it internally
-    $processes += Start-Process python -ArgumentList "server_app.py" -PassThru -NoNewWindow
-    $processes += Start-Process python -ArgumentList "proxy_app.py" -PassThru -NoNewWindow
+    $processes += Start-Process python -ArgumentList "server/server_app.py" -PassThru -NoNewWindow
+    $processes += Start-Process python -ArgumentList "client/proxy_app.py" -PassThru -NoNewWindow
     
     Pop-Location
 } else {
