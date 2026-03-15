@@ -3,6 +3,12 @@ from pathlib import Path
 import socket, yaml, time, threading, json, os, sys, queue
 from scapy.all import *
 
+# Ensure project root is in sys.path so dhcp.arp_probe is importable
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+from dhcp.arp_probe import probe_ip_loopback, probe_ip_real
+
 # DHCP Server Implementation with Lease Management, Reservations, and Persistence
 class DHCPMessageType(IntEnum):
     DISCOVER = 1
@@ -87,36 +93,65 @@ class DHCPServer:
                 except Exception as e:
                     print(f"[!] Error saving leases: {e}")
 
+    def _advance_pool_ip(self):
+        """Advance the pool pointer and return the next candidate IP,
+        skipping any reserved addresses. Must be called with self.lock held."""
+        reserved_ips = set(self.reservations.values())
+        while self.current_pool_ip in reserved_ips:
+            octets = list(map(int, self.current_pool_ip.split('.')))
+            if octets[3] <= int(self.end_ip.split('.')[3]):
+                octets[3] += 1
+                self.current_pool_ip = ".".join(map(str, octets))
+            else:
+                return None
+        octets = list(map(int, self.current_pool_ip.split('.')))
+        if octets[3] < int(self.end_ip.split('.')[3]):
+            ip = self.current_pool_ip
+            octets[3] += 1
+            self.current_pool_ip = ".".join(map(str, octets))
+            return ip
+        return None
+
+    def _probe_ip(self, ip):
+        """ARP-like conflict check. Returns True if the IP is already in use."""
+        if self.conf['loopback']:
+            return probe_ip_loopback(ip)
+        else:
+            return probe_ip_real(ip)
+
     # Helper to get the next available IP for a client, considering reservations and reclaimed IPs
     def get_next_available_ip(self, client_id):
-        """Returns the next available IP for client_id, 
-        making sure to check reservations and reclaimed IPs."""
+        """Returns the next available IP for client_id,
+        making sure to check reservations and reclaimed IPs.
+        For pool IPs, an ARP-like probe is sent first to detect conflicts
+        not recorded in the lease table (e.g. after a crash)."""
+        # Reservations and existing leases are trusted without probing
         with self.lock:
             if client_id in self.reservations:
                 return self.reservations[client_id]
             if client_id in self.client_to_ip:
                 return self.client_to_ip[client_id]
-            if self.available_reclaimed_ips:
-                return self.available_reclaimed_ips.pop(0)
-            reserved_ips = set(self.reservations.values())
-                # Skip reserved IPs in the pool
-            while self.current_pool_ip in reserved_ips:
-                octets = list(map(int, self.current_pool_ip.split('.')))
-                if octets[3] <= int(self.end_ip.split('.')[3]):
-                    octets[3] += 1
-                    self.current_pool_ip = ".".join(map(str, octets))
+
+        # For pool IPs, loop until we find one that doesn't respond to the probe
+        MAX_TRIES = 10
+        for _ in range(MAX_TRIES):
+            with self.lock:
+                if self.available_reclaimed_ips:
+                    candidate = self.available_reclaimed_ips.pop(0)
                 else:
+                    candidate = self._advance_pool_ip()
+                if candidate is None:
                     return None
-            
-            # Simple IP increment logic
-            octets = list(map(int, self.current_pool_ip.split('.')))
-            if octets[3] < int(self.end_ip.split('.')[3]):
-                assigned = self.current_pool_ip
-                octets[3] += 1
-                self.current_pool_ip = ".".join(map(str, octets))
-                print(f" |---> [POOL] Assigned {assigned} to PID: {client_id}")
-                return assigned
-            return None
+
+            # Probe outside the lock — this is a blocking network call
+            if not self._probe_ip(candidate):
+                print(f" |---> [POOL] Assigned {candidate} to PID: {client_id}")
+                return candidate
+
+            print(f"[ARP] ⚠️  Conflict on {candidate} — responded to probe but not in lease table. Skipping.")
+
+        print(f"[ARP] ❌ Could not find a free IP after {MAX_TRIES} tries.")
+        return None
 
 
     def sender_thread(self):

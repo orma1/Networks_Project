@@ -1,5 +1,10 @@
 import socket, os, random, time, sys, atexit, threading
 from scapy.all import *
+
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+from dhcp.arp_probe import ProbeListener
 def perform_dora(sock, client_id_opt, server_addr=("127.0.0.1", 6700)):
     """Performs DISCOVER → OFFER → REQUEST → ACK. Returns (assigned_ip, lease_time)."""
     xid = random.getrandbits(32)
@@ -44,10 +49,12 @@ class VirtualNetworkInterface:
         self.is_apipa = False
         self.lease_time = 60
         self.running = True
+        self._probe_listener = ProbeListener(lambda: self.ip)
         atexit.register(self.release_ip)
 
     def release_ip(self):
         if self.ip and not self.is_apipa:
+            self._probe_listener.stop()
             print(f"\n[*] DHCP: Releasing IP {self.ip} for {self.unique_id}...")
             pkt = BOOTP(yiaddr=self.ip)/DHCP(options=[("message-type", "release"), self.client_id_opt, "end"])
             try:
@@ -60,6 +67,7 @@ class VirtualNetworkInterface:
             self.ip, self.lease_time, _ = perform_dora(self.sock, self.client_id_opt)
             
             print(f"[V] DHCP Success: {self.unique_id} assigned {self.ip}")
+            self._probe_listener.start()
             threading.Thread(target=self._maintain_lease, daemon=True).start()
             
         except Exception:
