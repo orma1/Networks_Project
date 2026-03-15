@@ -26,7 +26,7 @@ import time
 import threading
 from typing import Dict, Optional, Callable
 from dataclasses import dataclass, field
-from Server_Proxy.shared.streaming_interfaces import (
+from Application.shared.streaming_interfaces import (
     SessionManager,
     StreamingServer,
     StreamMetrics,

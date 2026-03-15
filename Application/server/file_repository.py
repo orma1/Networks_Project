@@ -23,7 +23,7 @@ Quality Mapping:
 import os
 from typing import Optional, List
 from pathlib import Path
-from Server_Proxy.shared.streaming_interfaces import FileRepository
+from Application.shared.streaming_interfaces import FileRepository
 
 
 # ══════════════════════════════════════════════════════════════════════════════

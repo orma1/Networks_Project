@@ -464,7 +464,7 @@ if __name__ == "__main__":
     print("✓ Metrics collection")
     
     # Test 10: Combined limit
-    from Server_Proxy.server.congestion_controller import CongestionController
+    from Application.server.congestion_controller import CongestionController
     
     cc = CongestionController(initial_cwnd=10.0)
     fc = FlowController(initial_rwnd=7000, packet_size=1400)  # 5 packets

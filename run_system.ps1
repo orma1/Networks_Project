@@ -10,24 +10,23 @@ function Cleanup {
     exit
 }
 
+# Set PYTHONPATH to project root so 'Application.*' imports resolve
+$env:PYTHONPATH = $PSScriptRoot
+
 # 1. DHCP & Main Infrastructure
 Write-Host "[1/3] Starting DHCP and Main..." -ForegroundColor Cyan
 $processes += Start-Process python -ArgumentList "dhcp/dhcp_server.py" -PassThru -NoNewWindow
-$processes += Start-Process python -ArgumentList "main.py" -PassThru -NoNewWindow
+$processes += Start-Process python -ArgumentList "DNS/main.py" -PassThru -NoNewWindow
 Start-Sleep -Seconds 2
 
 # 2. Unified Services (Server & Proxy)
 Write-Host "[2/3] Starting Unified Services (Multi-Protocol Mode)..." -ForegroundColor Cyan
-if (Test-Path "Server_Proxy") {
-    Push-Location "Server_Proxy"
-    
+if (Test-Path "Application") {
     # We no longer pass --protocol because the Python code handles it internally
-    $processes += Start-Process python -ArgumentList "server/server_app.py" -PassThru -NoNewWindow
-    $processes += Start-Process python -ArgumentList "client/proxy_app.py" -PassThru -NoNewWindow
-    
-    Pop-Location
+    $processes += Start-Process python -ArgumentList "Application/server/server_app.py" -PassThru -NoNewWindow
+    $processes += Start-Process python -ArgumentList "Application/client/proxy_app.py" -PassThru -NoNewWindow
 } else {
-    Write-Host "[!] Error: Server_Proxy folder not found!" -ForegroundColor Red
+    Write-Host "[!] Error: Application folder not found!" -ForegroundColor Red
 }
 
 Write-Host "------------------------------------------"

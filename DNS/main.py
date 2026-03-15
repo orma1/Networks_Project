@@ -6,10 +6,10 @@ import signal
 import argparse
 # Define the paths to your individual server launchers
 SERVICES = [
-    {"name": "Root Server", "path": "DNS/Name_Servers/root_name_server.py"},
-    {"name": "TLD Server", "path": "DNS/Name_Servers/tld_name_server.py"},
-    {"name": "Auth Server", "path": "DNS/Name_Servers/auth_name_server.py"},
-    {"name": "Resolver", "path": "DNS/resolver/manager.py"} 
+    {"name": "Root Server", "path": "Name_Servers/root_name_server.py"},
+    {"name": "TLD Server", "path": "Name_Servers/tld_name_server.py"},
+    {"name": "Auth Server", "path": "Name_Servers/auth_name_server.py"},
+    {"name": "Resolver", "path": "resolver/manager.py"}
 ]
 
 # Keep track of running processes
@@ -17,47 +17,47 @@ active_processes = []
 def start_all(args):
     print("=" * 50)
     print("[*] Initiating Custom DNS Infrastructure Boot Sequence...")
-    
+
     mode_text = "DNSSEC SECURE MODE" if args.dnssec else "STANDARD INSECURE MODE"
     print(f"[*] Mode: {mode_text}")
     print("=" * 50)
-    
+
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     for service in SERVICES:
         name = service["name"]
         script_path = os.path.join(base_dir, service["path"])
-        
+
         # Safety check
         if not os.path.exists(script_path):
             print(f"[!] ERROR: Could not find {script_path}")
             continue
-            
+
         print(f"\n[*] Launching {name}...")
-        
+
         # Build the command dynamically
         cmd = [sys.executable, script_path]
-        
+
         # Pass the flag down to the child servers!
-        # Note: We exclude the Resolver here so it doesn't crash if it 
+        # Note: We exclude the Resolver here so it doesn't crash if it
         # doesn't have an argparse block built for it yet.
         if args.dnssec:
             cmd.append('--dnssec')
-            
+
         try:
             process = subprocess.Popen(cmd, start_new_session=True)
             active_processes.append((name, process))
         except Exception as e:
             print(f"[FATAL] Failed to start {name}: {e}")
-        
+
         # Give each server 0.6 seconds to bind to its port before starting the next (After testing, this seems to be the sweet spot for reliability without unnecessary delay)
-        time.sleep(0.6)    
+        time.sleep(0.6)
 
 def stop_all():
     print("\n" + "=" * 50)
     print("[*] Master kill signal received. Shutting down infrastructure...")
     print("=" * 50)
-    
+
     for name, process in active_processes:
         print(f"[*] Terminating {name}...")
         try:
@@ -68,7 +68,7 @@ def stop_all():
         except Exception as e:
             print(f"[!] Error stopping {name}: {e}")
             process.terminate() # Fallback to harsh kill if it's completely frozen
-            
+
     print("\n[*] All DNS services are offline. Goodbye!")
     sys.exit(0)
 
@@ -86,10 +86,10 @@ if __name__ == "__main__":
         print("[*] ALL SYSTEMS ONLINE AND LISTENING")
         print("[*] Press Ctrl+C at any time to gracefully stop all servers.")
         print("=" * 50 + "\n")
-        
+
         # The Orchestrator's only job now is to wait for you to press Ctrl+C
         while True:
             time.sleep(1)
-            
+
     except KeyboardInterrupt:
         stop_all()

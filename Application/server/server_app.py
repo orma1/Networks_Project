@@ -17,19 +17,19 @@ from typing import Dict, Optional, Tuple
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "../.."))
-from Server_Proxy.shared.protocol_utils import (
+from Application.shared.protocol_utils import (
     encode_data_packet, decode_data_packet, encode_control_message,
     RECOMMENDED_CHUNK_SIZE, DEFAULT_RECV_BUFFER_SIZE
 )
-from Server_Proxy.shared.streaming_interfaces import (
+from Application.shared.streaming_interfaces import (
     StreamingServer, StreamRequest, StreamMetrics, TransportProtocol, StreamState,
 )
 
-from Server_Proxy.server.sliding_window import SlidingWindow, WindowEntry
-from Server_Proxy.server.congestion_controller import CongestionController, CongestionState
-from Server_Proxy.server.flow_controller import FlowController, calculate_combined_limit
-from Server_Proxy.server.file_repository import LocalFileRepository
-from Server_Proxy.client.session_manager import SimpleSessionManager, SessionInfo
+from Application.server.sliding_window import SlidingWindow, WindowEntry
+from Application.server.congestion_controller import CongestionController, CongestionState
+from Application.server.flow_controller import FlowController, calculate_combined_limit
+from Application.server.file_repository import LocalFileRepository
+from Application.client.session_manager import SimpleSessionManager, SessionInfo
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VIDEO_DIR = os.path.join(BASE_DIR, "shared", "videos")

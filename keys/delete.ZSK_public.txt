@@ -1,5 +1,0 @@
-Zone: delete.
-Type: ZSK
-Flag: 256
-DNSKEY Base64:
-K+Nzqe4fUi7XZurzMXsjPb8XxE4CSvZOIvGmrBWKMGvw3EAMmVx9ogifvGSraOHVIdR2ICsSHZks3heNlDKO4w==

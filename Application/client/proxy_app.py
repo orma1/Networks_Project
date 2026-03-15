@@ -29,14 +29,14 @@ from fastapi.staticfiles import StaticFiles
 from dnslib import DNSRecord
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(BASE_DIR, "../.."))
-from Server_Proxy.shared.protocol_utils import (
+from Application.shared.protocol_utils import (
     decode_data_packet, 
     encode_control_message, 
     PACKET_OVERHEAD, 
     DEFAULT_RECV_BUFFER_SIZE,
     MAX_UDP_PAYLOAD
 )
-from Server_Proxy.shared.streaming_interfaces import (
+from Application.shared.streaming_interfaces import (
     StreamingClient,
     StreamRequest,
     StreamMetadata,
@@ -45,8 +45,8 @@ from Server_Proxy.shared.streaming_interfaces import (
     StreamState,
     QualitySelector,
 )
-from Server_Proxy.client.http_handler import HTTPHandler
-from Server_Proxy.client.stream_orchestrator import StreamOrchestrator
+from Application.client.http_handler import HTTPHandler
+from Application.client.stream_orchestrator import StreamOrchestrator
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))

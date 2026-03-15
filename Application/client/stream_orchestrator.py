@@ -22,7 +22,7 @@ This is the "maestro" that makes all components work together.
 from typing import Generator, Tuple, Optional
 from dataclasses import dataclass
 
-from Server_Proxy.shared.streaming_interfaces import (
+from Application.shared.streaming_interfaces import (
     StreamingClient,
     QualitySelector,
     StreamRequest,
@@ -30,8 +30,8 @@ from Server_Proxy.shared.streaming_interfaces import (
     StreamMetrics,
     TransportProtocol,
 )
-from Server_Proxy.client.http_handler import HTTPHandler, RangeRequest
-from Server_Proxy.client.rudp_client import RUDPClient
+from Application.client.http_handler import HTTPHandler, RangeRequest
+from Application.client.rudp_client import RUDPClient
 
 
 # ══════════════════════════════════════════════════════════════════════════════

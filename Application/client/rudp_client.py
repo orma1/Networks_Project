@@ -26,13 +26,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import queue
 
-from Server_Proxy.shared.protocol_utils import (
+from Application.shared.protocol_utils import (
     decode_data_packet,
     decode_control_message,
     encode_control_message,
     seq_less_than,
 )
-from Server_Proxy.shared.streaming_interfaces import (
+from Application.shared.streaming_interfaces import (
     StreamingClient,
     StreamRequest,
     StreamMetadata,

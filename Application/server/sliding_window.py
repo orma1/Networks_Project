@@ -19,7 +19,7 @@ Does NOT handle:
 import time
 from typing import Dict, Optional, Set, Tuple
 from dataclasses import dataclass, field
-from Server_Proxy.shared.protocol_utils import seq_less_than, seq_less_equal
+from Application.shared.protocol_utils import seq_less_than, seq_less_equal
 
 
 # ══════════════════════════════════════════════════════════════════════════════

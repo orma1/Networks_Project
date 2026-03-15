@@ -1,5 +1,0 @@
-Zone: delete_later.
-Type: ZSK
-Flag: 256
-DNSKEY Base64:
-qdBSNjCG9mDJgzQsenjh/EcBbK9y3CSaFHFJdzKrmFw6ep7mVE8a6z5DARRijrLP6oRzuuZI/oyL0U91aZDUnw==
