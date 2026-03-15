@@ -9,7 +9,7 @@ from abstract_name_server import AbstractNameServer
 class LocalTLDServer(AbstractNameServer):
     def __init__(self, config_filename="tld_config.yaml", dnssec_enabled=False):
         super().__init__(
-            "Local TLD Server (.homelab)", "127.0.0.11", config_filename, dnssec_enabled
+            "Local TLD Server (.homelab)", "127.0.0.4", config_filename, dnssec_enabled
         )
 
     def extract_domain(self, qname: str) -> str:

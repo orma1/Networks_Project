@@ -8,7 +8,7 @@ from abstract_name_server import AbstractNameServer
 class LocalAuthServer(AbstractNameServer):
     def __init__(self, config_filename="auth_config.yaml", dnssec_enabled=False):
         super().__init__(
-            "Local Auth Server", "127.0.0.12", config_filename, dnssec_enabled
+            "Local Auth Server", "127.0.0.5", config_filename, dnssec_enabled
         )
 
     def handle_query(self, data, addr, sock):
