@@ -237,7 +237,6 @@ class Resolver:
 
 
     def handle_query(self, data, addr, socket_ref):
-        print(f"[DEBUG] Thread {threading.get_ident()} started processing {addr}")
 
         try:
             request = DNSRecord.parse(data)

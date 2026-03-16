@@ -150,7 +150,13 @@ class RUDPSession(StreamingServer):
     def _send(self, pkt: bytes, is_ack: bool = False) -> bool:
         if self._should_drop_packet(is_ack):
             self.metrics.packets_lost_simulated += 1
-            return False
+            # Send a DROP control message first (for sniffing)
+            try:
+                drop_msg = encode_control_message("DROP", self.window.next_seq)
+                self.sock.sendto(drop_msg, self.client_addr)
+            except:
+                pass
+            return False 
         
         self._apply_latency()
         try:
@@ -305,6 +311,10 @@ class TCPHandler:
                     chunk = fh.read(131_072)
                     if not chunk: break
                     conn.sendall(chunk)
+                    if self.server.data_loss_rate > 0 and random.random() < self.server.data_loss_rate:
+                        conn.sendall(b"DROP|packet_dropped\n")  # Signal drop
+                        print(f"[SIMULATED DROP] TCP packet dropped for {addr}")
+                        continue
         except Exception:
             pass
         finally:
