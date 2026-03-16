@@ -6,8 +6,8 @@ Key features:
 ✓ DNS resolution for origin server address
 ✓ Detailed packet loss visibility with emojis
 ✓ Real-time DASH quality selection
-✓ HTTP 200 for RUDP (no Content-Length errors)
-✓ HTTP 206 for TCP (Range requests)
+✓ HTTP 200 for RUDP 
+✓ HTTP 206 for TCP
 """
 
 import os
@@ -534,9 +534,8 @@ if __name__ == "__main__":
 ║  ✓ DNS resolution for origin server
 ║  ✓ Detailed packet loss visibility
 ║  ✓ Real-time DASH quality selection
-║  ✓ HTTP 200 for RUDP (no Content-Length errors)
-║  ✓ HTTP 206 for TCP (Range requests)
-║
+║  ✓ HTTP 200 for RUDP
+║  ✓ HTTP 206 for TCP 
 ║ Watch the logs to see packet loss events!
 ╚═════════════════════════════════════════════════════════════╝
 """)

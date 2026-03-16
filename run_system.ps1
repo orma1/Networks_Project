@@ -97,7 +97,7 @@ Write-Host "    1. DHCP Server    -> Assigns IPs to clients" -ForegroundColor Gr
 Write-Host "    2. DNS Server     -> Resolves domain names" -ForegroundColor Gray
 Write-Host "    3. Origin Server  -> Streams video files" -ForegroundColor Gray
 Write-Host "    4. Proxy          -> Edge caching '&' load balancing" -ForegroundColor Gray
-Write-Host "`n  Access the system at: http://localhost:5000" -ForegroundColor Cyan
+Write-Host "`n  Access the system at: http://127.0.0.30:5000" -ForegroundColor Cyan
 Write-Host "`n  Shutdown Instructions:" -ForegroundColor White
 Write-Host "    Press CTRL+C to gracefully stop all services" -ForegroundColor Yellow
 
