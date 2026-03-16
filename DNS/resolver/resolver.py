@@ -229,7 +229,8 @@ class Resolver:
         with self.cache_lock:
             if real_reply.header.rcode == 0:
                 cache_clone = DNSRecord.parse(real_reply.pack())
-                self.cache.put(qname, qtype, cache_clone, getattr(self.config, 'default_ttl', 60))
+                ttl = min((rr.ttl for rr in cache_clone.rr if rr.ttl > 0), default=getattr(self.config, 'default_ttl', 60))
+                self.cache.put(qname, qtype, cache_clone, ttl)
 
         if not wants_dnssec:
             self.strip_dnssec_records(real_reply)
